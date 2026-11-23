@@ -11,6 +11,8 @@
 *.out
 coverage.*
 
+.idea/
+
 # Go workspace files
 go.work
 
