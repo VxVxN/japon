@@ -1,0 +1,19 @@
+# Compiled binaries
+/test
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test artifacts
+*.test
+*.out
+coverage.*
+
+# Go workspace files
+go.work
+
+# IDE
+.idea/
+.vscode/
