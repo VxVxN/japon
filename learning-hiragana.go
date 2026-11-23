@@ -14,6 +14,23 @@ func printLearningHiraganaMenu() {
 	fmt.Println("Press Ctrl+C or Esc to exit and see your statistics.")
 }
 
+func waitForEnter() bool {
+	quit := false
+
+	keyboard.Listen(func(key keys.Key) (bool, error) {
+		switch key.Code {
+		case keys.Escape:
+			quit = true
+			return true, nil
+		case keys.Enter:
+			return true, nil
+		}
+		return false, nil
+	})
+
+	return quit
+}
+
 func learningHiragana() {
 	hiragana := map[string]string{
 		"あ": "a", "い": "i", "う": "u", "え": "e", "お": "o",
@@ -116,15 +133,24 @@ func learningHiragana() {
 		}
 
 		answer := strings.ToLower(strings.TrimSpace(input))
+		cleanDisplay()
 		if answer == value {
 			known[k] = true
 			delete(unknown, k)
-			cleanDisplay()
-			fmt.Printf("Correct! %s - %s\n", k, value)
+			fmt.Printf("Correct! You answered \"%s\".\n", answer)
+			fmt.Printf("Correct answer: %s - %s\n", k, value)
 		} else {
 			unknown[k] = true
-			cleanDisplay()
-			fmt.Printf("Wrong. You typed \"%s\", the correct reading of %s is \"%s\".\n", answer, k, value)
+			if answer == "" {
+				fmt.Println("Wrong. You didn't type anything.")
+			} else {
+				fmt.Printf("Wrong. You answered \"%s\", but that is incorrect.\n", answer)
+			}
+			fmt.Printf("Correct answer: %s - %s\n", k, value)
+		}
+		fmt.Println("\nPress Enter to continue... (Esc shows statistics)")
+		if waitForEnter() {
+			showStats()
 		}
 	}
 
