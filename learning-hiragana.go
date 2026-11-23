@@ -3,73 +3,130 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"atomicgo.dev/keyboard"
 	"atomicgo.dev/keyboard/keys"
 )
 
 func printLearningHiraganaMenu() {
-	fmt.Println("1: I can translate\n2: I can't translate\n3: Go back to the main menu\n0: Exit")
+	fmt.Println("Type the reading in English letters and press Enter to check.")
+	fmt.Println("Press Ctrl+C or Esc to exit and see your statistics.")
 }
 
 func learningHiragana() {
 	hiragana := map[string]string{
-		// あ行
 		"あ": "a", "い": "i", "う": "u", "え": "e", "お": "o",
-		// か行
 		"か": "ka", "き": "ki", "く": "ku", "け": "ke", "こ": "ko",
-		// さ行
 		"さ": "sa", "し": "shi", "す": "su", "せ": "se", "そ": "so",
-		// た行
 		"た": "ta", "ち": "chi", "つ": "tsu", "て": "te", "と": "to",
-		// な行
 		"な": "na", "に": "ni", "ぬ": "nu", "ね": "ne", "の": "no",
-		// は行
 		"は": "ha", "ひ": "hi", "ふ": "fu", "へ": "he", "ほ": "ho",
-		// ま行
 		"ま": "ma", "み": "mi", "む": "mu", "め": "me", "も": "mo",
-		// や行
 		"や": "ya", "ゆ": "yu", "よ": "yo",
-		// ら行
 		"ら": "ra", "り": "ri", "る": "ru", "れ": "re", "ろ": "ro",
-		// わ行
 		"わ": "wa", "を": "wo",
-		// ん
 		"ん": "n",
-		// 濁点 (dakuten)
 		"が": "ga", "ぎ": "gi", "ぐ": "gu", "げ": "ge", "ご": "go",
 		"ざ": "za", "じ": "ji", "ず": "zu", "ぜ": "ze", "ぞ": "zo",
 		"だ": "da", "ぢ": "ji", "づ": "zu", "で": "de", "ど": "do",
 		"ば": "ba", "び": "bi", "ぶ": "bu", "べ": "be", "ぼ": "bo",
-		// 半濁点 (handakuten)
 		"ぱ": "pa", "ぴ": "pi", "ぷ": "pu", "ぺ": "pe", "ぽ": "po",
 	}
 
+	known := map[string]bool{}
+	unknown := map[string]bool{}
+
+	showStats := func() {
+		cleanDisplay()
+		total := len(hiragana)
+		fmt.Printf("Statistics (%d/%d answered correctly):\n\n", len(known), total)
+
+		fmt.Println("Known hiragana:")
+		if len(known) == 0 {
+			fmt.Println("  none")
+		} else {
+			for k := range known {
+				fmt.Printf("  %s - %s\n", k, hiragana[k])
+			}
+		}
+
+		fmt.Println("\nNot known / not answered hiragana:")
+		left := 0
+		for k := range hiragana {
+			if !known[k] && !unknown[k] {
+				fmt.Printf("  %s - %s\n", k, hiragana[k])
+				left++
+			}
+		}
+		for k := range unknown {
+			fmt.Printf("  %s - %s\n", k, hiragana[k])
+		}
+		if len(unknown) == 0 && left == 0 {
+			fmt.Println("  none")
+		}
+
+		os.Exit(0)
+	}
+
 	for k, value := range hiragana {
-		fmt.Println(k, "\n")
+		if known[k] {
+			continue
+		}
+		cleanDisplay()
+		if unknown[k] {
+			fmt.Println("You didn't know this one before. Try again!")
+			fmt.Println()
+		}
+		fmt.Println(k)
+		fmt.Println()
 		printLearningHiraganaMenu()
-		keyboard.Listen(func(key keys.Key) (stop bool, err error) {
+		fmt.Print("> ")
+
+		var input string
+		quit := false
+
+		keyboard.Listen(func(key keys.Key) (bool, error) {
 			switch key.Code {
 			case keys.Escape:
-				os.Exit(0)
-			}
-			switch key.String() {
-			case "0":
-				os.Exit(0)
-			case "1":
-				cleanDisplay()
-			case "2":
-				cleanDisplay()
-				fmt.Println(k, "-", value)
-			case "3":
-				mainMenu()
+				quit = true
+				return true, nil
+			case keys.Enter:
+				return true, nil
+			case keys.Backspace:
+				if len(input) > 0 {
+					runes := []rune(input)
+					input = string(runes[:len(runes)-1])
+					fmt.Print("\b \b")
+				}
+				return false, nil
 			default:
-				cleanDisplay()
-				printLearningHiraganaMenu()
+				if len(key.Runes) > 0 {
+					for _, r := range key.Runes {
+						input += string(r)
+						fmt.Print(string(r))
+					}
+				}
 				return false, nil
 			}
-			return true, nil
 		})
-		fmt.Println()
+
+		if quit {
+			showStats()
+		}
+
+		answer := strings.ToLower(strings.TrimSpace(input))
+		if answer == value {
+			known[k] = true
+			delete(unknown, k)
+			cleanDisplay()
+			fmt.Printf("Correct! %s - %s\n", k, value)
+		} else {
+			unknown[k] = true
+			cleanDisplay()
+			fmt.Printf("Wrong. You typed \"%s\", the correct reading of %s is \"%s\".\n", answer, k, value)
+		}
 	}
+
+	showStats()
 }
