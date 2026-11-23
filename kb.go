@@ -38,10 +38,31 @@ func newFakeKeyListener(k ...keys.Key) *fakeKeyListener {
 	return &fakeKeyListener{Keys: k}
 }
 
+// Listen feeds the predefined keys to the handler until it stops or the
+// sequence runs out.
+func (f *fakeKeyListener) Listen(h keyHandler) error {
+	for len(f.Keys) > 0 {
+		k := f.Keys[0]
+		f.Keys = f.Keys[1:]
+		f.Consumed = append(f.Consumed, k)
+		if h(k) {
+			return nil
+		}
+	}
+	f.Exhausted = true
+	return nil
+}
+
 // runeKey builds a key event for a typed character exactly like the real
 // keyboard listener does (KeyCode == keys.RuneKey plus the produced rune).
 func runeKey(r rune) keys.Key {
 	return keys.Key{Code: keys.RuneKey, Runes: []rune{r}}
+}
+
+// digitKey builds a key event for a typed digit. Note: digits arrive as
+// RuneKey events with the digit's rune, NOT with Code '0'..'9'.
+func digitKey(d byte) keys.Key {
+	return runeKey(rune('0' + d))
 }
 
 // textKeys builds the key events produced by typing the given text.
@@ -63,6 +84,3 @@ func runeKeys(text string) []keys.Key {
 func enterKey() keys.Key     { return keys.Key{Code: keys.Enter} }
 func escKey() keys.Key       { return keys.Key{Code: keys.Escape} }
 func backspaceKey() keys.Key { return keys.Key{Code: keys.Backspace} }
-func digitKey(d byte) keys.Key {
-	return runeKey(rune('0' + d))
-}

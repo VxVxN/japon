@@ -13,10 +13,10 @@ import (
 // app bundles all external dependencies of the interactive flows so they can
 // be swapped out in unit tests.
 type app struct {
-	out        io.Writer     // where all program output goes
-	listener   keyListener   // source of key events
-	clean      func()        // clears the display
-	exit       func(code int) // called instead of os.Exit, so tests can intercept it
+	out        io.Writer         // where all program output goes
+	listener   keyListener       // source of key events
+	clean      func()            // clears the display
+	exit       func(code int)    // called instead of os.Exit, so tests can intercept it
 	navigateTo func(name string) // how menu navigation is performed
 }
 
@@ -58,9 +58,9 @@ const (
 	destUnchanged = ""
 )
 
-// classifyMenuKey maps a menu key press to a navigation destination.
-// Only Escape and the digit keys '0'..'9' are considered; everything else
-// returns destUnchanged.
+// classifyMenuKey maps a main-menu key press to a navigation destination,
+// matching the printed menu: "1: Learning phrases", "2: Learning hiragana",
+// "0: Exit". Escape also exits; everything else returns destUnchanged.
 func classifyMenuKey(k keys.Key) string {
 	if k.Code == keys.Escape {
 		return destQuit
@@ -70,10 +70,8 @@ func classifyMenuKey(k keys.Key) string {
 	case "0":
 		return destQuit
 	case "1":
-		return destMainMenu
-	case "2":
 		return destPhrases
-	case "3":
+	case "2":
 		return destHiragana
 	}
 	if len(s) != 1 || s[0] < '0' || s[0] > '9' {
