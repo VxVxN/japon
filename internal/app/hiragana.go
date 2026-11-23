@@ -111,6 +111,7 @@ func (a *App) RunLearningHiragana(data map[string]string) {
 				fmt.Fprintln(a.Out, "Wrong. You didn't type anything.")
 			} else {
 				fmt.Fprintf(a.Out, "Wrong. You answered \"%s\", but that is incorrect.\n", answer)
+				fmt.Fprintf(a.Out, "Correct answer: %s - %s\n", k, data[k])
 			}
 		}
 		fmt.Fprintln(a.Out, "\nPress Enter to continue... (Esc shows statistics)")
