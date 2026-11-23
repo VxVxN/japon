@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"math/rand"
 	"sort"
 	"strings"
 
@@ -71,8 +72,18 @@ func (a *App) showStats(data map[string]string, known, unknown map[string]bool) 
 	a.Exit(0)
 }
 
+// shuffledStringMap returns the keys of m in random order.
+func shuffledStringMap(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	rand.Shuffle(len(out), func(i, j int) { out[i], out[j] = out[j], out[i] })
+	return out
+}
+
 // RunLearningHiragana runs the hiragana quiz over the given data set. Kana are
-// asked in sorted order; previously wrong kana are repeated at the end. The
+// asked in random order; previously wrong kana are repeated at the end. The
 // flow ends when everything is answered correctly or the user quits with
 // Escape, which shows the statistics.
 func (a *App) RunLearningHiragana(data map[string]string) {
@@ -80,8 +91,9 @@ func (a *App) RunLearningHiragana(data map[string]string) {
 	unknown := map[string]bool{}
 
 	// Ask each kana once per pass; wrong answers are collected into unknown and
-	// re-asked after the initial pass completes.
-	order := sortedStringMap(data)
+	// re-asked after the initial pass completes. The order is randomized so the
+	// quiz does not simply follow the syllabary table.
+	order := shuffledStringMap(data)
 
 	ask := func(k string) bool { // returns true if the caller should quit
 		a.Clean()

@@ -86,8 +86,14 @@ func FormatStats(data map[string]string, knownKeys, unknownKeys, restKeys []stri
 	return w.String()
 }
 
-// writeKeyList prints the "kana - reading" lines for the given keys in sorted
-// order, or "none" when there is nothing to show.
+// statsColumns is how many "kana - reading" entries are printed per line in
+// the statistics sections, keeping the output compact enough to fit on one
+// screen.
+const statsColumns = 6
+
+// writeKeyList prints the "kana - reading" entries for the given keys in
+// sorted order as a compact multi-column grid (several entries per line), or
+// "none" when there is nothing to show.
 func writeKeyList(w io.Writer, data map[string]string, list []string) {
 	if len(list) == 0 {
 		fmt.Fprintln(w, "  none")
@@ -95,7 +101,36 @@ func writeKeyList(w io.Writer, data map[string]string, list []string) {
 	}
 	sorted := append([]string(nil), list...)
 	sort.Strings(sorted)
+
+	entries := make([]string, 0, len(sorted))
+	width := 0
 	for _, k := range sorted {
-		fmt.Fprintf(w, "  %s - %s\n", k, data[k])
+		e := fmt.Sprintf("%s - %s", k, data[k])
+		entries = append(entries, e)
+		if r := len([]rune(e)); r > width {
+			width = r
+		}
+	}
+
+	pad := strings.Repeat(" ", width)
+	for i := 0; i < len(entries); i += statsColumns {
+		end := i + statsColumns
+		if end > len(entries) {
+			end = len(entries)
+		}
+		sb := &strings.Builder{}
+		sb.WriteString("  ")
+		for j, e := range entries[i:end] {
+			if j > 0 {
+				sb.WriteString(" | ")
+			}
+			sb.WriteString(e)
+			// Pad every cell except the last one on the last row so that the
+			// columns of the grid line up without trailing spaces.
+			if i+statsColumns < len(entries) {
+				sb.WriteString(pad[len([]rune(e)):])
+			}
+		}
+		fmt.Fprintln(w, strings.TrimRight(sb.String(), " "))
 	}
 }
