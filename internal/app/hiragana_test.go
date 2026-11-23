@@ -1,21 +1,22 @@
-package main
+package app
 
 import (
 	"strings"
 	"testing"
+	"test/internal/kbd"
 )
 
 // smallData is a tiny kana set so tests do not depend on the full syllabary.
 var smallData = map[string]string{"あ": "a", "い": "i"}
 
 func TestReadLineCollectsText(t *testing.T) {
-	a, buf, _, _, _ := newTestApp(t, runeKeys("ka")...)
-	text, aborted := a.readLine()
+	a, buf, _, _, _ := newTestApp(t, kbd.KeysWithEnter("ka")...)
+	text, aborted := a.ReadLine()
 	if aborted {
 		t.Fatal("unexpected abort")
 	}
 	if text != "ka" {
-		t.Errorf("readLine() = %q, want %q", text, "ka")
+		t.Errorf("ReadLine() = %q, want %q", text, "ka")
 	}
 	if !strings.Contains(buf.String(), "ka") {
 		t.Errorf("typed characters should be echoed, got %q", buf.String())
@@ -24,12 +25,11 @@ func TestReadLineCollectsText(t *testing.T) {
 
 func TestReadLineBackspace(t *testing.T) {
 	// type "kax", backspace once, then Enter -> "ka"
-	keys := append(runeKeys("kax")[:3], backspaceKey())
-	keys = append(keys, enterKey())
+	keys := append(kbd.TextKeys("kax"), kbd.BackspaceKey(), kbd.EnterKey())
 	a, buf, _, _, _ := newTestApp(t, keys...)
-	text, _ := a.readLine()
+	text, _ := a.ReadLine()
 	if text != "ka" {
-		t.Errorf("readLine() with backspace = %q, want %q", text, "ka")
+		t.Errorf("ReadLine() with backspace = %q, want %q", text, "ka")
 	}
 	if !strings.Contains(buf.String(), "\b \b") {
 		t.Errorf("backspace should erase on screen")
@@ -37,8 +37,8 @@ func TestReadLineBackspace(t *testing.T) {
 }
 
 func TestReadLineBackspaceOnEmpty(t *testing.T) {
-	a, _, listener, _, _ := newTestApp(t, backspaceKey(), enterKey())
-	text, aborted := a.readLine()
+	a, _, listener, _, _ := newTestApp(t, kbd.BackspaceKey(), kbd.EnterKey())
+	text, aborted := a.ReadLine()
 	if text != "" || aborted {
 		t.Errorf("got (%q, %v), want empty non-aborted", text, aborted)
 	}
@@ -48,8 +48,8 @@ func TestReadLineBackspaceOnEmpty(t *testing.T) {
 }
 
 func TestReadLineEscapeAborts(t *testing.T) {
-	a, _, listener, _, _ := newTestApp(t, runeKey('a'), escKey(), enterKey())
-	_, aborted := a.readLine()
+	a, _, listener, _, _ := newTestApp(t, kbd.RuneKey('a'), kbd.EscKey(), kbd.EnterKey())
+	_, aborted := a.ReadLine()
 	if !aborted {
 		t.Fatal("expected abort on Escape")
 	}
@@ -60,9 +60,9 @@ func TestReadLineEscapeAborts(t *testing.T) {
 
 func TestRunLearningHiraganaAllCorrect(t *testing.T) {
 	// Answer あ->a, Enter, い->i, Enter -> statistics + exit(0).
-	seq := []interface{}{"a", enterKey(), "i", enterKey()}
+	seq := []interface{}{"a", kbd.EnterKey(), "i", kbd.EnterKey()}
 	a, buf, _, exits, _ := newTestApp(t, flattenKeys(seq)...)
-	a.runLearningHiragana(smallData)
+	a.RunLearningHiragana(smallData)
 
 	out := buf.String()
 	if !strings.Contains(out, `Correct! You answered "a".`) {
@@ -79,12 +79,12 @@ func TestRunLearningHiraganaAllCorrect(t *testing.T) {
 func TestRunLearningHiraganaWrongThenRepeated(t *testing.T) {
 	// Wrong answer for あ, then correct on the repeat pass; い correct right away.
 	seq := []interface{}{
-		"x", enterKey(), // wrong for あ
-		"i", enterKey(), // correct for い
-		"a", enterKey(), // retry あ -> correct
+		"x", kbd.EnterKey(), // wrong for あ
+		"i", kbd.EnterKey(), // correct for い
+		"a", kbd.EnterKey(), // retry あ -> correct
 	}
 	a, buf, _, exits, _ := newTestApp(t, flattenKeys(seq)...)
-	a.runLearningHiragana(smallData)
+	a.RunLearningHiragana(smallData)
 
 	out := buf.String()
 	if !strings.Contains(out, `Wrong. You answered "x", but that is incorrect.`) {
@@ -104,12 +104,12 @@ func TestRunLearningHiraganaWrongThenRepeated(t *testing.T) {
 func TestRunLearningHiraganaEmptyAnswer(t *testing.T) {
 	// Empty input counts as wrong ("didn't type anything").
 	seq := []interface{}{
-		enterKey(),      // empty answer for あ
-		"a", enterKey(), // retry correct
-		"i", enterKey(), // い correct
+		kbd.EnterKey(), // empty answer for あ
+		"a", kbd.EnterKey(), // retry correct
+		"i", kbd.EnterKey(), // い correct
 	}
 	a, buf, _, _, _ := newTestApp(t, flattenKeys(seq)...)
-	a.runLearningHiragana(smallData)
+	a.RunLearningHiragana(smallData)
 	if !strings.Contains(buf.String(), "Wrong. You didn't type anything.") {
 		t.Errorf("empty answer should say \"didn't type anything\":\n%s", buf.String())
 	}
@@ -117,8 +117,8 @@ func TestRunLearningHiraganaEmptyAnswer(t *testing.T) {
 
 func TestRunLearningHiraganaEscapeShowsStats(t *testing.T) {
 	// Escape during the first question shows statistics and exits.
-	a, buf, _, exits, _ := newTestApp(t, escKey())
-	a.runLearningHiragana(smallData)
+	a, buf, _, exits, _ := newTestApp(t, kbd.EscKey())
+	a.RunLearningHiragana(smallData)
 
 	out := buf.String()
 	if !strings.Contains(out, "Statistics (0/2 answered correctly)") {
@@ -133,9 +133,9 @@ func TestRunLearningHiraganaEscapeShowsStats(t *testing.T) {
 }
 
 func TestRunLearningHiraganaCaseInsensitive(t *testing.T) {
-	seq := []interface{}{"A", enterKey(), "I", enterKey()}
+	seq := []interface{}{"A", kbd.EnterKey(), "I", kbd.EnterKey()}
 	a, buf, _, _, _ := newTestApp(t, flattenKeys(seq)...)
-	a.runLearningHiragana(smallData)
+	a.RunLearningHiragana(smallData)
 	if strings.Contains(buf.String(), "Wrong.") {
 		t.Errorf("uppercase answers should be accepted:\n%s", buf.String())
 	}

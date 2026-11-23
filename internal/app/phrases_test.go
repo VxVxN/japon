@@ -1,15 +1,17 @@
-package main
+package app
 
 import (
 	"fmt"
 	"strings"
 	"testing"
+	"test/internal/data"
+	"test/internal/kbd"
 
 	"atomicgo.dev/keyboard/keys"
 )
 
 // flattenKeys concatenates a list of key sequences and single keys into one
-// flat sequence, e.g. flattenKeys(runeKeys("a"), enterKey()).
+// flat sequence, e.g. flattenKeys(kbd.TextKeys("a"), kbd.EnterKey()).
 func flattenKeys(items ...interface{}) []keys.Key {
 	var out []keys.Key
 	for _, it := range items {
@@ -19,7 +21,7 @@ func flattenKeys(items ...interface{}) []keys.Key {
 		case []keys.Key:
 			out = append(out, v...)
 		case string:
-			out = append(out, textKeys(v)...)
+			out = append(out, kbd.TextKeys(v)...)
 		case []interface{}:
 			out = append(out, flattenKeys(v...)...)
 		default:
@@ -37,8 +39,8 @@ var testPhrases = map[string]string{
 
 func TestRunLearningPhrasesCanTranslate(t *testing.T) {
 	// "1" for every phrase: flow finishes without exiting or navigating.
-	a, buf, listener, exits, navs := newTestApp(t, digitKey('1'), digitKey('1'), digitKey('1'))
-	a.runLearningPhrases(testPhrases)
+	a, buf, listener, exits, navs := newTestApp(t, kbd.DigitKey('1'), kbd.DigitKey('1'), kbd.DigitKey('1'))
+	a.RunLearningPhrases(testPhrases)
 
 	if len(*exits) != 0 {
 		t.Errorf("unexpected exit: %v", *exits)
@@ -58,8 +60,8 @@ func TestRunLearningPhrasesCanTranslate(t *testing.T) {
 
 func TestRunLearningPhrasesShowTranslation(t *testing.T) {
 	// First phrase is あ (sorted order); "2" shows its translation.
-	a, buf, _, exits, _ := newTestApp(t, digitKey('2'), digitKey('1'), digitKey('1'))
-	a.runLearningPhrases(testPhrases)
+	a, buf, _, exits, _ := newTestApp(t, kbd.DigitKey('2'), kbd.DigitKey('1'), kbd.DigitKey('1'))
+	a.RunLearningPhrases(testPhrases)
 
 	if !strings.Contains(buf.String(), "あ - A") {
 		t.Errorf("translation line missing:\n%s", buf.String())
@@ -70,10 +72,10 @@ func TestRunLearningPhrasesShowTranslation(t *testing.T) {
 }
 
 func TestRunLearningPhrasesBackToMain(t *testing.T) {
-	a, _, _, exits, navs := newTestApp(t, digitKey('3'))
-	a.runLearningPhrases(testPhrases)
+	a, _, _, exits, navs := newTestApp(t, kbd.DigitKey('3'))
+	a.RunLearningPhrases(testPhrases)
 
-	if len(*navs) != 1 || (*navs)[0] != destMainMenu {
+	if len(*navs) != 1 || (*navs)[0] != DestMainMenu {
 		t.Fatalf("expected navigation to main menu, got %v", *navs)
 	}
 	if len(*exits) != 0 {
@@ -82,8 +84,8 @@ func TestRunLearningPhrasesBackToMain(t *testing.T) {
 }
 
 func TestRunLearningPhrasesExitOnZero(t *testing.T) {
-	a, _, listener, exits, _ := newTestApp(t, digitKey('0'), digitKey('1'))
-	a.runLearningPhrases(testPhrases)
+	a, _, listener, exits, _ := newTestApp(t, kbd.DigitKey('0'), kbd.DigitKey('1'))
+	a.RunLearningPhrases(testPhrases)
 
 	if len(*exits) != 1 || (*exits)[0] != 0 {
 		t.Fatalf("expected exit(0), got %v", *exits)
@@ -94,8 +96,8 @@ func TestRunLearningPhrasesExitOnZero(t *testing.T) {
 }
 
 func TestRunLearningPhrasesEscapeExits(t *testing.T) {
-	a, _, _, exits, navs := newTestApp(t, escKey())
-	a.runLearningPhrases(testPhrases)
+	a, _, _, exits, navs := newTestApp(t, kbd.EscKey())
+	a.RunLearningPhrases(testPhrases)
 
 	if len(*exits) != 1 || (*exits)[0] != 0 {
 		t.Fatalf("Escape should exit(0), got %v", *exits)
@@ -106,8 +108,8 @@ func TestRunLearningPhrasesEscapeExits(t *testing.T) {
 }
 
 func TestRunLearningPhrasesUnknownKeyRedrawsMenu(t *testing.T) {
-	a, buf, listener, _, _ := newTestApp(t, runeKey('z'), digitKey('1'), digitKey('1'), digitKey('1'))
-	a.runLearningPhrases(testPhrases)
+	a, buf, listener, _, _ := newTestApp(t, kbd.RuneKey('z'), kbd.DigitKey('1'), kbd.DigitKey('1'), kbd.DigitKey('1'))
+	a.RunLearningPhrases(testPhrases)
 
 	if len(listener.Consumed) != 4 {
 		t.Fatalf("unknown key must not consume the selection; consumed=%d", len(listener.Consumed))
@@ -118,33 +120,33 @@ func TestRunLearningPhrasesUnknownKeyRedrawsMenu(t *testing.T) {
 	}
 }
 
-func TestNavigateToDispatches(t *testing.T) {
-	defer func(saved *app) { currentApp = saved }(currentApp)
-
-	var ran string
-	listener := newFakeKeyListener(digitKey('0')) // any key ends the fake flows quickly
-	currentApp = &app{
-		out:      &strings.Builder{},
-		listener: listener,
-		clean:    func() {},
-		exit:     func(int) {},
-		navigateTo: func(name string) {
-			// Intercept navigation so we can observe dispatch without recursion.
-			ran = name
-			listener.Keys = nil
-		},
+func TestAllPhrasesMerged(t *testing.T) {
+	all := data.AllPhrases()
+	cats := []map[string]string{data.FoodPhrases, data.CommonPhrases, data.ClothesPhrases, data.EtcPhrases}
+	total := 0
+	for _, m := range cats {
+		total += len(m)
 	}
-
-	// destPhrases -> runLearningPhrases sees digit '1'... but our app's
-	// navigateTo is what the flows call; instead verify dispatch by checking
-	// that each destination runs a flow that consumes at least one key.
-	for _, dest := range []string{destPhrases, destHiragana, destMainMenu} {
-		listener.Consumed = nil
-		listener.Keys = []keys.Key{escKey()}
-		navigateTo(dest)
-		if len(listener.Consumed) == 0 {
-			t.Errorf("navigateTo(%q) did not run any flow", dest)
+	if len(all) != total {
+		t.Errorf("AllPhrases lost entries: got %d, want %d", len(all), total)
+	}
+	for _, m := range cats {
+		for k, v := range m {
+			if all[k] != v {
+				t.Errorf("phrase %q missing or wrong in AllPhrases", k)
+			}
 		}
 	}
-	_ = ran
+}
+
+func TestHiraganaMapSanity(t *testing.T) {
+	// Basic syllabary spot checks and no empty readings.
+	for _, k := range []string{"あ", "か", "さ", "た", "な", "は", "ま", "や", "ら", "わ", "ん", "が", "ぱ"} {
+		if data.Hiragana[k] == "" {
+			t.Errorf("data.Hiragana[%q] has no reading", k)
+		}
+	}
+	if len(data.Hiragana) < 70 {
+		t.Errorf("data.Hiragana unexpectedly small: %d", len(data.Hiragana))
+	}
 }
