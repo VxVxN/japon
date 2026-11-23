@@ -2,39 +2,39 @@ package main
 
 import (
 	"fmt"
-	"os"
 
-	"atomicgo.dev/keyboard"
 	"atomicgo.dev/keyboard/keys"
 )
 
-func printMainMenu() {
-	fmt.Println("1: Learning phrases\n2: Learning\nhiragana\n0: Exit")
+// printMainMenu prints the top-level menu to the app's output.
+func (a *app) printMainMenu() {
+	fmt.Fprint(a.out, "1: Learning phrases\n2: Learning hiragana\n0: Exit\n")
 }
 
-func mainMenu() {
-	cleanDisplay()
-	printMainMenu()
-	keyboard.Listen(func(key keys.Key) (stop bool, err error) {
-		switch key.Code {
-		case keys.Escape:
-			os.Exit(0)
+// runMainMenu shows the main menu and waits for a selection. Escape or "0"
+// exits the program, "1" opens the phrases flow, "2" opens the hiragana flow.
+// Any other key simply redraws the menu.
+func (a *app) runMainMenu() {
+	a.clean()
+	a.printMainMenu()
+	_ = a.listener.Listen(func(k keys.Key) bool {
+		switch dest := classifyMenuKey(k); dest {
+		case destQuit:
+			a.exit(0)
+			return true
+		case destPhrases, destHiragana:
+			a.clean()
+			a.navigateTo(dest)
+			return true
 		default:
+			a.clean()
+			a.printMainMenu()
+			return false
 		}
-		switch key.String() {
-		case "0":
-			os.Exit(0)
-		case "1":
-			cleanDisplay()
-			learningPhrases()
-		case "2":
-			cleanDisplay()
-			learningHiragana()
-		default:
-			cleanDisplay()
-			printMainMenu()
-			return false, nil
-		}
-		return true, nil
 	})
+}
+
+// mainMenu is the entry point used by main().
+func mainMenu() {
+	currentApp.runMainMenu()
 }
