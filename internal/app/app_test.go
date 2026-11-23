@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"bytes"
 	"strings"
 	"testing"
@@ -64,8 +65,7 @@ func TestFormatStats(t *testing.T) {
 	)
 	want := "Statistics (2/3 answered correctly):\n\n" +
 		"Known hiragana:\n" +
-		"  あ - a\n" +
-		"  い - i\n" +
+		"  あ - a | い - i\n" +
 		"\nNot known / not answered hiragana:\n" +
 		"  う - u\n"
 	if got != want {
@@ -92,6 +92,31 @@ func TestWriteKeyListNone(t *testing.T) {
 	writeKeyList(w, map[string]string{}, nil)
 	if got := w.String(); got != "  none\n" {
 		t.Errorf("writeKeyList(empty) = %q, want %q", got, "  none\n")
+	}
+}
+
+func TestWriteKeyListCompactGrid(t *testing.T) {
+	// More entries than fit in one row must wrap into a compact grid instead
+	// of taking one line per kana.
+	data := map[string]string{}
+	keys := []string{"あ", "い", "う", "え", "お", "か", "き", "く"}
+	for i, k := range keys {
+		data[k] = fmt.Sprintf("r%d", i)
+	}
+	w := &strings.Builder{}
+	writeKeyList(w, data, keys)
+	lines := strings.Split(strings.TrimRight(w.String(), "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 grid lines for %d entries, got %d:\n%s", len(keys), len(lines), w.String())
+	}
+	if !strings.Contains(lines[0], "あ - r0") || !strings.Contains(lines[0], "か - r5") {
+		t.Errorf("first row wrong: %q", lines[0])
+	}
+	if !strings.Contains(lines[1], "き - r6") || !strings.Contains(lines[1], "く - r7") {
+		t.Errorf("second row wrong: %q", lines[1])
+	}
+	if strings.Contains(w.String(), "  あ - r0\n") {
+		t.Errorf("entries should not be printed one per line:\n%s", w.String())
 	}
 }
 
