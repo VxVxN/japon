@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"sort"
 	"strings"
+	"unicode"
 
 	"atomicgo.dev/keyboard/keys"
 )
@@ -181,12 +182,34 @@ func sortedStringMap(m map[string]string) []string {
 	return out
 }
 
-// RunResetProgress asks for confirmation and then clears the persisted
-// hiragana learning progress, returning to the main menu afterwards.
-func (a *App) RunResetProgress() {
+// RunResetHiraganaProgress asks for confirmation and then clears only the
+// persisted hiragana learning progress, returning to the main menu afterwards.
+func (a *App) RunResetHiraganaProgress() {
+	a.runReset("hiragana", "all kana you have learned so far will be asked again.", func() error {
+		if a.ResetHiragana != nil {
+			return a.ResetHiragana()
+		}
+		return ResetHiraganaProgress()
+	})
+}
+
+// RunResetPhrasesProgress asks for confirmation and then clears only the
+// persisted phrases learning progress, returning to the main menu afterwards.
+func (a *App) RunResetPhrasesProgress() {
+	a.runReset("phrases", "all phrases you have learned so far will be shown again.", func() error {
+		if a.ResetPhrasesProgress != nil {
+			return a.ResetPhrasesProgress()
+		}
+		return ResetPhrasesProgress()
+	})
+}
+
+// runReset shows the shared confirmation prompt for a scoped progress reset
+// and invokes the given reset function once the user confirms.
+func (a *App) runReset(what, detail string, reset func() error) {
 	a.Clean()
-	fmt.Fprintln(a.Out, "This will delete your saved hiragana progress:")
-	fmt.Fprintln(a.Out, "all kana you have learned so far will be asked again.")
+	fmt.Fprintf(a.Out, "This will delete your saved %s progress:\n", what)
+	fmt.Fprintln(a.Out, detail)
 	fmt.Fprintln(a.Out)
 	fmt.Fprintln(a.Out, "Press Enter to confirm the reset, Esc to cancel.")
 	fmt.Fprint(a.Out, "> ")
@@ -198,12 +221,22 @@ func (a *App) RunResetProgress() {
 	}
 
 	a.Clean()
-	if err := a.ResetProgress(); err != nil {
+	if err := reset(); err != nil {
 		fmt.Fprintf(a.Out, "Failed to reset progress: %v\n", err)
 	} else {
-		fmt.Fprintln(a.Out, "Progress has been reset.")
+		fmt.Fprintf(a.Out, "%s progress has been reset.\n", capitalize(what))
 	}
 	fmt.Fprintln(a.Out, "\nPress Enter to return to the menu...")
 	a.waitForEnter()
 	a.NavigateTo(DestMainMenu)
+}
+
+// capitalize upper-cases the first rune of s.
+func capitalize(s string) string {
+if s == "" {
+return s
+}
+r := []rune(s)
+r[0] = unicode.ToUpper(r[0])
+return string(r)
 }
