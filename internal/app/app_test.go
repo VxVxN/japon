@@ -18,6 +18,8 @@ func newTestApp(t *testing.T, ks ...keys.Key) (*App, *bytes.Buffer, *kbd.Fake, *
 	listener := kbd.NewFake(ks...)
 	var exits []int
 	var navs []string
+	// In-memory progress store shared with the app under test.
+	progress := ProgressData{}
 	a := &App{
 		Out:      buf,
 		Listener: listener,
@@ -28,6 +30,9 @@ func newTestApp(t *testing.T, ks ...keys.Key) (*App, *bytes.Buffer, *kbd.Fake, *
 			// stop the flow that navigated away, like the real one-shot menus do
 			listener.Keys = nil
 		},
+		LoadProgress:  func() ProgressData { return progress },
+		SaveProgress:  func(p ProgressData) error { progress = p; return nil },
+		ResetProgress: func() error { progress = ProgressData{}; return nil },
 	}
 	return a, buf, listener, &exits, &navs
 }
@@ -42,7 +47,7 @@ func TestClassifyMenuKey(t *testing.T) {
 		{"zero quits", kbd.DigitKey('0'), DestQuit},
 		{"one opens phrases", kbd.DigitKey('1'), DestPhrases},
 		{"two opens hiragana", kbd.DigitKey('2'), DestHiragana},
-		{"three is not in menu", kbd.DigitKey('3'), DestUnchanged},
+		{"three opens reset", kbd.DigitKey('3'), DestReset},
 		{"nine is not in menu", kbd.DigitKey('9'), DestUnchanged},
 		{"letter unchanged", kbd.RuneKey('a'), DestUnchanged},
 		{"enter unchanged", kbd.EnterKey(), DestUnchanged},

@@ -86,9 +86,25 @@ func shuffledStringMap(m map[string]string) []string {
 // asked in random order; previously wrong kana are repeated at the end. The
 // flow ends when everything is answered correctly or the user quits with
 // Escape, which shows the statistics.
+//
+// Progress is persisted: kana that were already known from previous sessions
+// (loaded via LoadProgress) are skipped, and every newly known kana is saved
+// back to the progress file as soon as it is answered correctly.
 func (a *App) RunLearningHiragana(data map[string]string) {
 	known := map[string]bool{}
 	unknown := map[string]bool{}
+
+	// Restore previously learned kana so they are not asked again. Only keys
+	// that exist in the current data set are trusted.
+	for _, k := range a.LoadProgress().KnownHiragana {
+		if _, ok := data[k]; ok {
+			known[k] = true
+		}
+	}
+
+	save := func() {
+		_ = a.SaveProgress(ProgressData{KnownHiragana: sortedKeys(known)})
+	}
 
 	// Ask each kana once per pass; wrong answers are collected into unknown and
 	// re-asked after the initial pass completes. The order is randomized so the
@@ -116,6 +132,7 @@ func (a *App) RunLearningHiragana(data map[string]string) {
 		if answer == data[k] {
 			known[k] = true
 			delete(unknown, k)
+			save()
 			fmt.Fprintf(a.Out, "Correct! You answered \"%s\".\n", answer)
 		} else {
 			unknown[k] = true
@@ -162,4 +179,31 @@ func sortedStringMap(m map[string]string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// RunResetProgress asks for confirmation and then clears the persisted
+// hiragana learning progress, returning to the main menu afterwards.
+func (a *App) RunResetProgress() {
+	a.Clean()
+	fmt.Fprintln(a.Out, "This will delete your saved hiragana progress:")
+	fmt.Fprintln(a.Out, "all kana you have learned so far will be asked again.")
+	fmt.Fprintln(a.Out)
+	fmt.Fprintln(a.Out, "Press Enter to confirm the reset, Esc to cancel.")
+	fmt.Fprint(a.Out, "> ")
+
+	if a.waitForEnter() {
+		// Cancelled: go back to the main menu without touching anything.
+		a.NavigateTo(DestMainMenu)
+		return
+	}
+
+	a.Clean()
+	if err := a.ResetProgress(); err != nil {
+		fmt.Fprintf(a.Out, "Failed to reset progress: %v\n", err)
+	} else {
+		fmt.Fprintln(a.Out, "Progress has been reset.")
+	}
+	fmt.Fprintln(a.Out, "\nPress Enter to return to the menu...")
+	a.waitForEnter()
+	a.NavigateTo(DestMainMenu)
 }

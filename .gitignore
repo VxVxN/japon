@@ -19,3 +19,6 @@ go.work
 # IDE
 .idea/
 .vscode/
+
+# Persisted hiragana learning progress (created by the app at runtime)
+japan_progress.json

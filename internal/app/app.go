@@ -19,16 +19,24 @@ type App struct {
 	Clean      func()            // clears the display
 	Exit       func(code int)    // called instead of os.Exit, so tests can intercept it
 	NavigateTo func(name string) // how menu navigation is performed
+
+	// Progress persistence hooks; tests replace them with in-memory fakes.
+	LoadProgress  func() ProgressData
+	SaveProgress  func(ProgressData) error
+	ResetProgress func() error
 }
 
 // New creates an App wired to the real terminal. navigateTo should be set by
 // the caller (see cmd/japan/main.go) to dispatch named destinations.
 func New() *App {
 	return &App{
-		Out:      os.Stdout,
-		Listener: kbd.Real{},
-		Clean:    CleanDisplay,
-		Exit:     os.Exit,
+		Out:           os.Stdout,
+		Listener:      kbd.Real{},
+		Clean:         CleanDisplay,
+		Exit:          os.Exit,
+		LoadProgress:  LoadProgress,
+		SaveProgress:  SaveProgress,
+		ResetProgress: ResetProgress,
 	}
 }
 
@@ -42,13 +50,15 @@ const (
 	DestMainMenu  = "main"
 	DestPhrases   = "phrases"
 	DestHiragana  = "hiragana"
+	DestReset     = "reset"
 	DestQuit      = "quit"
 	DestUnchanged = ""
 )
 
 // ClassifyMenuKey maps a main-menu key press to a navigation destination,
 // matching the printed menu: "1: Learning phrases", "2: Learning hiragana",
-// "0: Exit". Escape also exits; everything else returns DestUnchanged.
+// "3: Reset progress", "0: Exit". Escape also exits; everything else returns
+// DestUnchanged.
 func ClassifyMenuKey(k keys.Key) string {
 	if k.Code == keys.Escape {
 		return DestQuit
@@ -61,6 +71,8 @@ func ClassifyMenuKey(k keys.Key) string {
 		return DestPhrases
 	case "2":
 		return DestHiragana
+	case "3":
+		return DestReset
 	}
 	if len(s) != 1 || s[0] < '0' || s[0] > '9' {
 		return DestUnchanged

@@ -21,12 +21,12 @@ func NewMainMenu(a *app.App) *MainMenu {
 
 // printMenu prints the top-level menu to the app's output.
 func (m *MainMenu) printMenu() {
-	fmt.Fprint(m.a.Out, "1: Learning phrases\n2: Learning hiragana\n0: Exit\n")
+	fmt.Fprint(m.a.Out, "1: Learning phrases\n2: Learning hiragana\n3: Reset progress\n0: Exit\n")
 }
 
 // Run shows the main menu and waits for a selection. Escape or "0" exits the
-// program, "1" opens the phrases flow, "2" opens the hiragana flow. Any other
-// key simply redraws the menu.
+// program, "1" opens the phrases flow, "2" opens the hiragana flow, "3" opens
+// the progress reset flow. Any other key simply redraws the menu.
 func (m *MainMenu) Run() {
 	m.a.Clean()
 	m.printMenu()
@@ -35,7 +35,7 @@ func (m *MainMenu) Run() {
 		case app.DestQuit:
 			m.a.Exit(0)
 			return true
-		case app.DestPhrases, app.DestHiragana:
+		case app.DestPhrases, app.DestHiragana, app.DestReset:
 			m.a.Clean()
 			m.a.NavigateTo(dest)
 			return true
