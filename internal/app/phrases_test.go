@@ -59,8 +59,9 @@ func TestRunLearningPhrasesCanTranslate(t *testing.T) {
 }
 
 func TestRunLearningPhrasesShowTranslation(t *testing.T) {
-	// First phrase is あ (sorted order); "2" shows its translation.
-	a, buf, _, exits, _ := newTestApp(t, kbd.DigitKey('2'), kbd.DigitKey('1'), kbd.DigitKey('1'))
+	// First phrase is あ (sorted order); "2" shows its translation while the
+	// menu stays in place, then "1" moves on to the next phrase.
+	a, buf, listener, exits, _ := newTestApp(t, kbd.DigitKey('2'), kbd.DigitKey('1'), kbd.DigitKey('1'), kbd.DigitKey('1'))
 	a.RunLearningPhrases(testPhrases)
 
 	if !strings.Contains(buf.String(), "あ - A") {
@@ -69,10 +70,35 @@ func TestRunLearningPhrasesShowTranslation(t *testing.T) {
 	if len(*exits) != 0 {
 		t.Errorf("unexpected exit: %v", *exits)
 	}
+	// All three phrases are completed with "1"; "2" only reveals the
+	// translation and keeps listening on the same menu.
+	if len(listener.Consumed) != 4 {
+		t.Errorf("expected 4 keys consumed, got %d", len(listener.Consumed))
+	}
+	// The menu must not be redrawn by "2": one draw per phrase only.
+	if got := strings.Count(buf.String(), "1: I can translate"); got != 3 {
+		t.Errorf("menu draws = %d, want 3 (menu stays in place):\n%s", got, buf.String())
+	}
+}
+
+func TestRunLearningPhrasesCantTranslate(t *testing.T) {
+	// "3" means "I can't translate": advance without exiting or navigating.
+	a, _, listener, exits, navs := newTestApp(t, kbd.DigitKey('3'), kbd.DigitKey('3'), kbd.DigitKey('3'))
+	a.RunLearningPhrases(testPhrases)
+
+	if len(listener.Consumed) != 3 {
+		t.Errorf("expected 3 keys consumed, got %d", len(listener.Consumed))
+	}
+	if len(*exits) != 0 {
+		t.Errorf("unexpected exit: %v", *exits)
+	}
+	if len(*navs) != 0 {
+		t.Errorf("unexpected navigation: %v", *navs)
+	}
 }
 
 func TestRunLearningPhrasesBackToMain(t *testing.T) {
-	a, _, _, exits, navs := newTestApp(t, kbd.DigitKey('3'))
+	a, _, _, exits, navs := newTestApp(t, kbd.DigitKey('4'))
 	a.RunLearningPhrases(testPhrases)
 
 	if len(*navs) != 1 || (*navs)[0] != DestMainMenu {

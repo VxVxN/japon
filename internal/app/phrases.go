@@ -9,15 +9,18 @@ import (
 
 // printLearningPhrasesMenu prints the per-phrase menu.
 func (a *App) printLearningPhrasesMenu() {
-	fmt.Fprint(a.Out, "1: I can translate\n2: I can't translate\n3: Go back to the main menu\n0: Exit\n")
+	fmt.Fprint(a.Out, "1: I can translate\n2: Show translation\n3: I can't translate\n4: Go back to the main menu\n0: Exit\n")
 }
 
 // RunLearningPhrases walks through the given phrase set. For each phrase the
 // user either confirms they can translate it ("1"), asks to see the
-// translation ("2"), returns to the main menu ("3") or exits ("0"/Esc).
+// translation ("2" — the translation is shown and the menu stays in place),
+// marks the phrase as not translatable ("3"), returns to the main menu ("4")
+// or exits ("0"/Esc).
 func (a *App) RunLearningPhrases(phrases map[string]string) {
 	for _, k := range SortedPhraseKeys(phrases) {
 		value := phrases[k]
+		printedTranslation := false
 		fmt.Fprintln(a.Out, k)
 		fmt.Fprintln(a.Out)
 		a.printLearningPhrasesMenu()
@@ -37,10 +40,16 @@ func (a *App) RunLearningPhrases(phrases map[string]string) {
 				a.Clean()
 				return true
 			case "2":
-				a.Clean()
-				fmt.Fprintf(a.Out, "%s - %s\n", k, value)
-				return true
+				// Show the translation but keep the menu in place.
+				if !printedTranslation {
+					fmt.Fprintf(a.Out, "%s - %s\n", k, value)
+					printedTranslation = true
+				}
+				return false
 			case "3":
+				a.Clean()
+				return true
+			case "4":
 				a.NavigateTo(DestMainMenu)
 				stillListening = false
 				return true
@@ -51,6 +60,7 @@ func (a *App) RunLearningPhrases(phrases map[string]string) {
 					return true
 				}
 				a.Clean()
+				printedTranslation = false
 				a.printLearningPhrasesMenu()
 				return false
 			}
