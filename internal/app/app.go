@@ -21,22 +21,26 @@ type App struct {
 	NavigateTo func(name string) // how menu navigation is performed
 
 	// Progress persistence hooks; tests replace them with in-memory fakes.
-	LoadProgress  func() ProgressData
-	SaveProgress  func(ProgressData) error
-	ResetProgress func() error
+	LoadProgress        func() ProgressData
+	SaveProgress        func(ProgressData) error
+	ResetProgress       func() error
+	ResetHiragana       func() error
+	ResetPhrasesProgress func() error
 }
 
 // New creates an App wired to the real terminal. navigateTo should be set by
 // the caller (see cmd/japan/main.go) to dispatch named destinations.
 func New() *App {
 	return &App{
-		Out:           os.Stdout,
-		Listener:      kbd.Real{},
-		Clean:         CleanDisplay,
-		Exit:          os.Exit,
-		LoadProgress:  LoadProgress,
-		SaveProgress:  SaveProgress,
-		ResetProgress: ResetProgress,
+		Out:                os.Stdout,
+		Listener:           kbd.Real{},
+		Clean:              CleanDisplay,
+		Exit:               os.Exit,
+		LoadProgress:       LoadProgress,
+		SaveProgress:       SaveProgress,
+		ResetProgress:      ResetProgress,
+		ResetHiragana:      ResetHiraganaProgress,
+		ResetPhrasesProgress: ResetPhrasesProgress,
 	}
 }
 
@@ -47,18 +51,20 @@ func CleanDisplay() {
 
 // Navigation destination names used by the menus.
 const (
-	DestMainMenu  = "main"
-	DestPhrases   = "phrases"
-	DestHiragana  = "hiragana"
-	DestReset     = "reset"
-	DestQuit      = "quit"
-	DestUnchanged = ""
+	DestMainMenu      = "main"
+	DestPhrases       = "phrases"
+	DestHiragana      = "hiragana"
+	DestReset         = "reset"
+	DestResetHiragana = "reset-hiragana"
+	DestResetPhrases  = "reset-phrases"
+	DestQuit          = "quit"
+	DestUnchanged     = ""
 )
 
 // ClassifyMenuKey maps a main-menu key press to a navigation destination,
 // matching the printed menu: "1: Learning phrases", "2: Learning hiragana",
-// "3: Reset progress", "0: Exit". Escape also exits; everything else returns
-// DestUnchanged.
+// "3: Reset hiragana progress", "4: Reset phrases progress", "0: Exit".
+// Escape also exits; everything else returns DestUnchanged.
 func ClassifyMenuKey(k keys.Key) string {
 	if k.Code == keys.Escape {
 		return DestQuit
@@ -72,7 +78,9 @@ func ClassifyMenuKey(k keys.Key) string {
 	case "2":
 		return DestHiragana
 	case "3":
-		return DestReset
+		return DestResetHiragana
+	case "4":
+		return DestResetPhrases
 	}
 	if len(s) != 1 || s[0] < '0' || s[0] > '9' {
 		return DestUnchanged

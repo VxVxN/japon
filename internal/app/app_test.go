@@ -30,9 +30,11 @@ func newTestApp(t *testing.T, ks ...keys.Key) (*App, *bytes.Buffer, *kbd.Fake, *
 			// stop the flow that navigated away, like the real one-shot menus do
 			listener.Keys = nil
 		},
-		LoadProgress:  func() ProgressData { return progress },
-		SaveProgress:  func(p ProgressData) error { progress = p; return nil },
-		ResetProgress: func() error { progress = ProgressData{}; return nil },
+		LoadProgress:         func() ProgressData { return progress },
+		SaveProgress:         func(p ProgressData) error { progress = p; return nil },
+		ResetProgress:        func() error { progress = ProgressData{}; return nil },
+		ResetHiragana:        func() error { progress.KnownHiragana = nil; return nil },
+		ResetPhrasesProgress: func() error { progress.KnownPhrases = nil; return nil },
 	}
 	return a, buf, listener, &exits, &navs
 }
@@ -47,7 +49,8 @@ func TestClassifyMenuKey(t *testing.T) {
 		{"zero quits", kbd.DigitKey('0'), DestQuit},
 		{"one opens phrases", kbd.DigitKey('1'), DestPhrases},
 		{"two opens hiragana", kbd.DigitKey('2'), DestHiragana},
-		{"three opens reset", kbd.DigitKey('3'), DestReset},
+		{"three resets hiragana", kbd.DigitKey('3'), DestResetHiragana},
+		{"four resets phrases", kbd.DigitKey('4'), DestResetPhrases},
 		{"nine is not in menu", kbd.DigitKey('9'), DestUnchanged},
 		{"letter unchanged", kbd.RuneKey('a'), DestUnchanged},
 		{"enter unchanged", kbd.EnterKey(), DestUnchanged},
