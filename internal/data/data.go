@@ -28,8 +28,8 @@ var Hiragana = map[string]string{
 // Phrase categories shown by the phrases learning flow.
 var (
 	FoodPhrases = map[string]string{
-		"おちゃとごはんをください。":  "Tea and rice, please.",
-		"みずとラーメンをください。":  "Water and ramen, please.",
+		"おちゃとごはん、ください。":  "Tea and rice, please.",
+		"みずとラーメン、ください。":  "Water and ramen, please.",
 		"ピザはおいしいです。":     "Pizza is tasty.",
 		"サラダはおいしいですか。":   "Is the salad tasty?",
 		"はい、ケーキはおいしいです。": "Yes, cake is tasty.",
