@@ -14,6 +14,9 @@ const progressFileName = "japan_progress.json"
 // ProgressData is the on-disk representation of the learning state.
 type ProgressData struct {
 	KnownHiragana []string `json:"known_hiragana"`
+	// KnownKatakana lists the katakana kana the user already knows. They are
+	// skipped in later runs of the katakana flow.
+	KnownKatakana []string `json:"known_katakana"`
 	// KnownPhrases lists the phrase keys (Japanese source sentences) the user
 	// already confirmed they can translate. They are skipped in later runs of
 	// the phrases flow.
@@ -86,10 +89,20 @@ func ResetProgress() error {
 }
 
 // ResetHiraganaProgress clears only the saved hiragana state, keeping the
-// known-phrases list intact. A missing progress file is not an error.
+// known-katakana and known-phrases lists intact. A missing progress file is
+// not an error.
 func ResetHiraganaProgress() error {
 	p := LoadProgress()
 	p.KnownHiragana = nil
+	return SaveProgress(p)
+}
+
+// ResetKatakanaProgress clears only the saved katakana state, keeping the
+// known-hiragana and known-phrases lists intact. A missing progress file is
+// not an error.
+func ResetKatakanaProgress() error {
+	p := LoadProgress()
+	p.KnownKatakana = nil
 	return SaveProgress(p)
 }
 
