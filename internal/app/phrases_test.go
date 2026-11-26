@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"testing"
 	"test/internal/data"
@@ -190,7 +191,7 @@ func TestRunLearningPhrasesSkipsKnownAndPersists(t *testing.T) {
 	// "あ" was already learned in a previous session: it must not be shown,
 	// and confirming the remaining two phrases must persist them as known.
 	progress := ProgressData{KnownPhrases: []string{"あ"}}
-	a, buf, _, _, _ := newTestAppWithProgress(t, progress, kbd.DigitKey('1'), kbd.DigitKey('1'))
+	a, buf, _, _, _ := newTestAppWithProgress(t, &progress, kbd.DigitKey('1'), kbd.DigitKey('1'))
 	a.RunLearningPhrases(testPhrases)
 
 	if strings.Contains(buf.String(), "1: I can translate\n2: Show translation\n3: I can't translate\n4: Go back to the main menu\n0: Exit\nあ\n") {
@@ -204,7 +205,7 @@ func TestRunLearningPhrasesSkipsKnownAndPersists(t *testing.T) {
 
 func TestRunLearningPhrasesAllKnownReturnsToMenu(t *testing.T) {
 	progress := ProgressData{KnownPhrases: []string{"あ", "い", "う"}}
-	a, buf, _, _, navs := newTestAppWithProgress(t, progress, kbd.EnterKey())
+	a, buf, _, _, navs := newTestAppWithProgress(t, &progress, kbd.EnterKey())
 	a.RunLearningPhrases(testPhrases)
 
 	if !strings.Contains(buf.String(), "You already know all the phrases!") {
