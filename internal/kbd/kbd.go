@@ -38,6 +38,15 @@ type Fake struct {
 	Consumed  []keys.Key
 	Exhausted bool
 	OnDrained func()
+
+	// lastStopped reports whether the most recent Listen call ended because
+	// the handler returned true (a real answer) instead of running out of
+	// keys.
+	lastStopped bool
+	// lastKey is the terminating key of the most recent handler-stopped
+	// Listen call; it is replayed at the head of the next Listen so an
+	// exhausted-but-answered source still delivers one final event.
+	lastKey *keys.Key
 }
 
 // NewFake builds a fake listener for the given key sequence.
@@ -51,6 +60,18 @@ func NewFake(k ...keys.Key) *Fake {
 // interactive flows must treat this like the real terminal going quiet and
 // finish their current interaction.
 func (f *Fake) Listen(h Handler) error {
+	f.lastStopped = false
+	if len(f.Keys) == 0 && f.lastKey != nil {
+		// Replay the previous terminating key once so the next interaction
+		// ends on a real answer instead of seeing a dead source mid-line.
+		k := *f.lastKey
+		f.lastKey = nil
+		f.Consumed = append(f.Consumed, k)
+		if h(k) {
+			f.lastStopped = true
+			return nil
+		}
+	}
 	if len(f.Keys) == 0 {
 		// The source already ran dry in an earlier call: stay exhausted so
 		// repeated calls return immediately instead of spinning forever.
@@ -62,6 +83,14 @@ func (f *Fake) Listen(h Handler) error {
 		f.Keys = f.Keys[1:]
 		f.Consumed = append(f.Consumed, k)
 		if h(k) {
+			// The handler stopped on this key: remember it so a later Listen
+			// call (e.g. the "Press Enter to continue" prompt after the final
+			// answer of a test sequence) can replay the terminating event
+			// instead of running into a dead source mid-interaction. Flows
+			// rely on this only for graceful termination, never for the
+			// correctness of an answer.
+			f.lastKey = &k
+			f.lastStopped = true
 			return nil
 		}
 	}
@@ -85,8 +114,15 @@ func (f *Fake) Listen(h Handler) error {
 func (f *Fake) IsExhausted() bool { return f.Exhausted }
 
 // HasPendingKeys reports whether the fake can still deliver at least one key
-// event to the next Listen call.
-func (f *Fake) HasPendingKeys() bool { return len(f.Keys) > 0 }
+// event to the next Listen call: either queued keys remain or a terminating
+// key is waiting to be replayed. Once both are gone the source is spent and
+// flows must end their interaction instead of looping forever on unanswered
+// questions.
+func (f *Fake) HasPendingKeys() bool { return len(f.Keys) > 0 || f.lastKey != nil }
+
+// HasReplay reports whether a terminating key is waiting to be replayed to
+// the next Listen call.
+func (f *Fake) HasReplay() bool { return f.lastKey != nil }
 
 // Watch wraps the given Listener and sets *seen to true whenever a key event
 // actually reaches the handler. Flows use it together with the optional
@@ -120,6 +156,17 @@ func (w *watcher) IsExhausted() bool {
 		return q.IsExhausted()
 	}
 	return false
+}
+
+// HasPendingKeys reports whether the wrapped listener can still deliver at
+// least one key event to a subsequent Listen call. Listeners without such a
+// probe (the real terminal, live web sessions) are assumed to keep
+// delivering events.
+func (w *watcher) HasPendingKeys() bool {
+	if p, ok := w.inner.(interface{ HasPendingKeys() bool }); ok {
+		return p.HasPendingKeys()
+	}
+	return true
 }
 
 // RuneKey builds a key event for a typed character exactly like the real

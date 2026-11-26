@@ -276,8 +276,10 @@ func (a *App) runKanaQuiz(scriptName string, data map[string]string, loadKnown f
 			}
 		}
 		if sourceSpent(a.Listener) {
-			// No further keys can arrive; stop after processing this answer.
-			return true
+			// No further keys can arrive; stop after processing this answer -
+			// unless every kana is known now, in which case the loops below
+			// finish normally and report the complete statistics.
+			return len(known) != len(data)
 		}
 		fmt.Fprintln(a.Out, "\nPress Enter to continue... (Esc shows statistics)")
 		return a.waitForEnter()
@@ -291,13 +293,20 @@ func (a *App) runKanaQuiz(scriptName string, data map[string]string, loadKnown f
 			a.showStatsScript(scriptName, data, known, unknown)
 			return
 		}
+		if sourceSpent(a.Listener) {
+			// The last answer was processed and no further keys can arrive;
+			// finish the quiz with the statistics (2/2 when everything was
+			// answered correctly on this pass).
+			a.showStatsScript(scriptName, data, known, unknown)
+			return
+		}
 		if quiet() {
 			a.showStatsScript(scriptName, data, known, unknown)
 			return
 		}
 	}
-	// Repeatedly re-ask everything that is still unknown. The quiet() guard
-	// makes the loop terminate when the key source runs dry (closed web
+	// Repeatedly re-ask everything that is still unknown. The spent/quiet
+	// guards make the loop terminate when the key source runs dry (closed web
 	// session or exhausted fake listener in tests).
 	for len(unknown) > 0 {
 		for _, k := range order {
@@ -308,7 +317,7 @@ func (a *App) runKanaQuiz(scriptName string, data map[string]string, loadKnown f
 				a.showStatsScript(scriptName, data, known, unknown)
 				return
 			}
-			if quiet() {
+			if sourceSpent(a.Listener) || quiet() {
 				a.showStatsScript(scriptName, data, known, unknown)
 				return
 			}

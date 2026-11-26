@@ -69,10 +69,13 @@ func (a *App) RunLearningPhrases(phrases map[string]string) {
 				fmt.Fprintln(a.Out, "You already know all the phrases!")
 				fmt.Fprintln(a.Out, "\nPress Enter to return to the menu...")
 				a.waitForEnter()
+				a.NavigateTo(DestMainMenu)
 			} else {
+				// Everything was learned during this session: celebrate and
+				// finish without an extra navigation - the caller (menu
+				// dispatcher) returns to the main menu on its own.
 				fmt.Fprintln(a.Out, "\nAll phrases learned! Well done!")
 			}
-			a.NavigateTo(DestMainMenu)
 			return
 		}
 
