@@ -46,6 +46,9 @@ func NewFake(k ...keys.Key) *Fake {
 // finish their current interaction.
 func (f *Fake) Listen(h Handler) error {
 	if len(f.Keys) == 0 {
+		// The source already ran dry in an earlier call: stay exhausted so
+		// repeated calls return immediately instead of spinning forever.
+		f.Exhausted = true
 		return nil
 	}
 	for len(f.Keys) > 0 {
@@ -65,10 +68,16 @@ func (f *Fake) Listen(h Handler) error {
 // set when the handler terminates on the very last key of the sequence: that
 // means the interaction received a real answer (Enter/Escape), and flows use
 // this method to distinguish "the user answered" from "the key source ran
-// dry" (see Watch and the quiet() helpers in the app package). Once the
-// sequence is exhausted, every subsequent Listen call returns immediately
-// instead of spinning forever.
+// dry" (see Watch and the quiet() helpers in the app package). Callers that
+// need to detect exhaustion right after a ReadLine - including the case
+// where the terminating Enter was the final key of the sequence - check
+// HasPendingKeys themselves once Listen returned (see cmd/web and the
+// exhaustion handling in the app package).
 func (f *Fake) IsExhausted() bool { return f.Exhausted }
+
+// HasPendingKeys reports whether the fake can still deliver at least one key
+// event to the next Listen call.
+func (f *Fake) HasPendingKeys() bool { return len(f.Keys) > 0 }
 
 // Watch wraps the given Listener and sets *seen to true whenever a key event
 // actually reaches the handler. Flows use it together with the optional
