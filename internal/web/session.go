@@ -1,38 +1,36 @@
-// Package web serves the learning application as a web UI. Each browser
-// connection gets its own Session, which drives the very same interactive
-// flows (app.RunLearningHiragana, RunLearningPhrases, ...) that the console
-// build uses: the session plugs itself into app.App as the key Listener and
-// the output writer, so no flow logic is duplicated for the web.
+// Package web serves the learning application as a graphical web UI. Each
+// browser connection gets its own Session. The session owns the whole
+// interaction loop: it loads the data sets and the persisted progress,
+// renders structured JSON view models to the browser (menu cards, quiz
+// questions, statistics tables) and applies the semantic actions coming back
+// from it ("select", "answer", "confirm"). No terminal text or emulated
+// keystrokes are involved — the interface is a real web app, not a mirror of
+// a console screen.
 package web
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
+	"math/rand"
+	"sort"
 	"strings"
 	"sync"
-	"time"
-
-	"atomicgo.dev/keyboard/keys"
 
 	"test/internal/app"
 	"test/internal/data"
-	"test/internal/kbd"
 )
 
 // wsMessage is one JSON frame exchanged with the browser.
 //
-// Server -> client: {"type":"render","html":...} or {"type":"closed"}.
-// Client -> server: {"type":"key","code":"Enter","rune":"a"} — exactly one
-// keystroke per message; "code" carries special keys ("Enter", "Escape",
-// "Backspace") and "rune" carries typed characters.
+// Server -> client: {"type":"state","state":{...}} | {"type":"closed"}.
+// Client -> server: {"type":"action","action":"select|answer|confirm","value":...}.
 type wsMessage struct {
-	Type    string `json:"type"`
-	HTML    string `json:"html,omitempty"`
-	Code    string `json:"code,omitempty"`
-	Rune    string `json:"rune,omitempty"`
-	Message string `json:"message,omitempty"`
+	Type    string          `json:"type"`
+	State   *State          `json:"state,omitempty"`
+	Action  string          `json:"action,omitempty"`
+	Value   string          `json:"value,omitempty"`
+	Raw     json.RawMessage `json:"raw,omitempty"` // typed payload (bool for confirm)
+	Message string          `json:"message,omitempty"`
 }
 
 // conn abstracts the transport used to talk to the browser. The real
@@ -85,185 +83,111 @@ func (h *hub) closeAll() {
 	}
 }
 
+// scriptSpec describes one kana data set tracked by the session.
+type scriptSpec struct {
+	dest       string // app.DestHiragana / app.DestKatakana
+	name       string // display name
+	title      string // view title
+	table      map[string]string
+	knownField func(*app.ProgressData) *[]string
+}
+
+// resetTarget identifies which persisted list a pending reset clears.
+type resetTarget struct {
+	label string
+	field func(*app.ProgressData) *[]string
+}
+
 // Session is one browser tab running the application.
 type Session struct {
 	c   conn
 	hub *hub
 	app *app.App
 
-	quit     chan struct{}
-	quitOnce sync.Once
-	waiter   kbd.Waitable // current inner listener while a flow runs
-	pumpDone chan struct{} // closed when the render pump goroutine exits
-
+	quit      chan struct{}
+	closeOnce sync.Once
 	mu        sync.Mutex
-	buf       bytes.Buffer // pending display output (accumulates until rendered)
-	lastFrame string       // last HTML sent to the browser (for dedup)
-	dirty     bool         // buffer changed since the last render
-	keys      chan keys.Key
-	keyClosed bool
-	exhausted bool // key source ran dry (browser gone / session closing)
 	closed    bool
+
+	// Interaction state. All fields below are guarded by actMu and only
+	// touched from DeliverAction (the websocket read-loop goroutine).
+	actMu        sync.Mutex
+	awaiting     string // "" | "answer" | "confirm"
+	prompt       string // current question prompt (kana symbol / phrase key)
+	pendingReset *resetTarget
+
+	hiraScr, kataScr scriptSpec
+	phraseTable      map[string]string
 }
 
 // NewSession wires an app.App around the given connection. It is separated
 // from the HTTP handler so tests can create sessions over a fake transport.
 func NewSession(c conn, h *hub) *Session {
 	s := &Session{
-		c:        c,
-		hub:      h,
-		quit:     make(chan struct{}),
-		pumpDone: make(chan struct{}),
-		keys:     make(chan keys.Key),
+		c:    c,
+		hub:  h,
+		quit: make(chan struct{}),
 	}
 
 	a := app.New()
-	a.Out = s
-	a.Listener = s
-	a.NavigateTo = navigateTo(a)
-	// The web UI never exits the process and does not clear the real
-	// terminal: Clean only resets the display buffer (handled inside the
-	// session), Exit just ends the current flow.
+	// The web UI never writes terminal output and never exits the process:
+	// Out swallows any legacy flow text, Clean/Exit/NavigateTo are inert
+	// because the session drives its own state machine instead of the
+	// console flows.
+	a.Out = discardWriter{}
+	a.Clean = func() {}
 	a.Exit = func(int) {}
-
+	a.NavigateTo = func(string) {}
 	s.app = a
+
+	s.hiraScr = scriptSpec{
+		dest:       app.DestHiragana,
+		name:       "hiragana",
+		title:      "Хирагана",
+		table:      data.Hiragana,
+		knownField: func(p *app.ProgressData) *[]string { return &p.KnownHiragana },
+	}
+	s.kataScr = scriptSpec{
+		dest:       app.DestKatakana,
+		name:       "katakana",
+		title:      "Катакана",
+		table:      data.Katakana,
+		knownField: func(p *app.ProgressData) *[]string { return &p.KnownKatakana },
+	}
+	s.phraseTable = data.AllPhrases()
+
 	if h != nil {
 		h.register(s)
 	}
 	return s
 }
 
-// navigateTo dispatches a named destination to its flow, mirroring the
-// console dispatcher in cmd/japan/main.go. DestQuit simply ends the current
-// flow; the main-menu loop then notices the closed session and returns.
-func navigateTo(a *app.App) func(name string) {
-	return func(name string) {
-		switch name {
-		case app.DestPhrases:
-			a.RunLearningPhrases(data.AllPhrases())
-		case app.DestHiragana:
-			a.RunLearningHiragana(data.Hiragana)
-		case app.DestKatakana:
-			a.RunLearningKatakana(data.Katakana)
-		case app.DestResetHiragana:
-			a.RunResetHiraganaProgress()
-		case app.DestResetKatakana:
-			a.RunResetKatakanaProgress()
-		case app.DestResetPhrases:
-			a.RunResetPhrasesProgress()
-		case app.DestQuit:
-			// Ending the current flow returns control to the menu loop,
-			// which exits once the session is closed.
-		default: // app.DestMainMenu and anything unknown
-			fmt.Fprint(a.Out, menuText)
-		}
-	}
-}
+// discardWriter absorbs the text the shared app flows print; the web UI
+// renders structured state instead.
+type discardWriter struct{}
 
-// menuText is shown at the top of every fresh session; the buttons in the
-// page sidebar deliver the same digits the console menu expects.
-const menuText = "Choose a section:\n" +
-	"1: Learning phrases\n2: Learning hiragana\n3: Learning katakana\n" +
-	"4: Reset hiragana progress\n5: Reset katakana progress\n6: Reset phrases progress\n0: Exit\n"
+func (discardWriter) Write(p []byte) (int, error) { return len(p), nil }
 
-// Serve runs the session's main-menu loop until the browser disconnects or
-// the session is closed. It must run in its own goroutine.
+// Serve sends the initial menu state and then waits until the session is
+// closed. All further rendering happens synchronously inside DeliverAction.
 func (s *Session) Serve() {
-	defer s.Close()
-
-	go s.pump()
-
-	// Wrap the session listener so flows can report completion: every
-	// interactive flow listens through kbd.Watch, whose Done channel we use
-	// to detect "the flow returned" vs "still waiting for input".
-	inner := s.app.Listener
-	seen := false
-	w := kbd.Watch(inner, &seen)
-	s.app.Listener = w
-	defer func() { s.app.Listener = inner }()
-
-	s.render()
-
-	for !s.IsClosed() {
-		s.writeMenu()
-
-		done := w.Done()
-		s.setWaiter(w)
-		<-done
-		s.setWaiter(nil)
-
-		// The flow finished on its own (e.g. all kana learned, reset
-		// confirmed): redraw the menu and keep going. If it was cancelled
-		// because the session died, the loop condition below ends Serve.
-		if s.IsClosed() {
-			return
-		}
-	}
+	s.sendState(s.menuState())
+	<-s.quit
 }
 
-// pump periodically flushes the display buffer to the browser so keystroke
-// echo (typing, backspaces) appears live, not only when a flow finishes.
-func (s *Session) pump() {
-	defer close(s.pumpDone)
-	ticker := time.NewTicker(60 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-s.quit:
-			s.render() // final flush
-			return
-		case <-ticker.C:
-			s.mu.Lock()
-			dirty := s.dirty
-			s.mu.Unlock()
-			if dirty {
-				s.render()
-			}
-		}
-	}
-}
-
-func (s *Session) writeMenu() {
-	s.Clean()
-	fmt.Fprint(s.app.Out, menuText)
-	s.render()
-}
-
-func (s *Session) setWaiter(w kbd.Waitable) {
-	s.mu.Lock()
-	s.waiter = w
-	s.mu.Unlock()
-}
-
-// Close terminates the session: pending listeners wake up, the key source
-// reports itself exhausted (so any blocked flow unwinds), the running flow
-// is cancelled and the transport closes.
+// Close terminates the session and closes the transport. Safe to call twice.
 func (s *Session) Close() {
-	s.quitOnce.Do(func() { close(s.quit) })
-
-	s.mu.Lock()
-	if s.closed {
-		s.mu.Unlock()
-	} else {
+	s.closeOnce.Do(func() {
+		s.mu.Lock()
 		s.closed = true
-		s.exhausted = true
-		if !s.keyClosed {
-			close(s.keys)
-			s.keyClosed = true
-		}
-		w := s.waiter
 		s.mu.Unlock()
-		if w != nil {
-			w.Cancel()
+		close(s.quit)
+		_ = s.c.send(wsMessage{Type: "closed"})
+		_ = s.c.closeWrite()
+		if s.hub != nil {
+			s.hub.unregister(s)
 		}
-		<-s.pumpDone // let the pump deliver its final frame
-	}
-
-	_ = s.c.send(wsMessage{Type: "closed"})
-	_ = s.c.closeWrite()
-	if s.hub != nil {
-		s.hub.unregister(s)
-	}
+	})
 }
 
 // IsClosed reports whether the session has been terminated.
@@ -273,152 +197,400 @@ func (s *Session) IsClosed() bool {
 	return s.closed
 }
 
-// DeliverKey feeds one keystroke coming from the browser into the session.
-// It returns false when the session is already dead. Called by the websocket
-// read loop for every incoming "key" message.
-func (s *Session) DeliverKey(m wsMessage) bool {
-	k := decodeKey(m)
-	s.mu.Lock()
-	closed := s.closed || s.keyClosed
-	ch := s.keys
-	s.mu.Unlock()
-	if closed {
+// DeliverAction applies one browser action and pushes the resulting state
+// back to the client. It returns false when the session is dead (the read
+// loop then tears the connection down).
+func (s *Session) DeliverAction(m wsMessage) bool {
+	if s.IsClosed() {
 		return false
 	}
-	select {
-	case ch <- k:
+	a, ok := decodeAction(m)
+	if !ok {
 		return true
-	case <-s.quit:
+	}
+	s.actMu.Lock()
+	defer s.actMu.Unlock()
+
+	switch a.kind {
+	case ActionSelect:
+		return s.handleSelect(a.value)
+	case ActionAnswer:
+		return s.handleAnswer(a.value)
+	case ActionConfirm:
+		return s.handleConfirm(a.bool_)
+	}
+	return true
+}
+
+// ---------- rendering helpers ----------
+
+func (s *Session) sendState(st *State) bool {
+	if s.IsClosed() {
 		return false
 	}
+	st.Progress = s.progressInfo()
+	return s.c.send(wsMessage{Type: "state", State: st}) == nil
 }
 
-// Listen implements kbd.Listener. It delivers browser keystrokes one by one;
-// once the session is closed it never blocks and reports the source as
-// exhausted, which is exactly how the interactive flows detect "the user is
-// gone" (see app.sourceQuiet / sourceSpent).
-func (s *Session) Listen(h kbd.Handler) error {
-	for {
-		s.mu.Lock()
-		spent := s.exhausted
-		ch := s.keys
-		s.mu.Unlock()
-		if spent {
-			return nil
-		}
-		select {
-		case <-s.quit:
-			return nil
-		case k, ok := <-ch:
-			if !ok {
-				return nil
-			}
-			if h(k) {
-				return nil
+func (s *Session) progressInfo() *ProgressInfo {
+	p := s.app.LoadProgress()
+	count := func(list []string, table map[string]string) int {
+		n := 0
+		for _, k := range list {
+			if _, ok := table[k]; ok {
+				n++
 			}
 		}
+		return n
+	}
+	return &ProgressInfo{
+		HiraganaKnown: count(p.KnownHiragana, s.hiraScr.table),
+		HiraganaTotal: len(s.hiraScr.table),
+		KatakanaKnown: count(p.KnownKatakana, s.kataScr.table),
+		KatakanaTotal: len(s.kataScr.table),
+		PhrasesKnown:  count(p.KnownPhrases, s.phraseTable),
+		PhrasesTotal:  len(s.phraseTable),
 	}
 }
 
-// IsExhausted lets app.sourceQuiet/sourceSpent recognise a dead session.
-func (s *Session) IsExhausted() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.exhausted
+func (s *Session) menuState() *State {
+	return &State{
+		View:     ViewMenu,
+		Title:    "Главное меню",
+		Subtitle: "Выберите раздел",
+		Menu: []MenuItem{
+			{ID: app.DestPhrases, Label: "Учим фразы", Icon: "book"},
+			{ID: app.DestHiragana, Label: "Учим хирагану", Icon: "pencil"},
+			{ID: app.DestKatakana, Label: "Учим катакану", Icon: "kata"},
+			{ID: app.DestResetHiragana, Label: "Сбросить хирагану", Icon: "reset", Style: "danger"},
+			{ID: app.DestResetKatakana, Label: "Сбросить катакану", Icon: "reset", Style: "danger"},
+			{ID: app.DestResetPhrases, Label: "Сбросить фразы", Icon: "reset", Style: "danger"},
+		},
+	}
 }
 
-// HasPendingKeys conservatively reports true while the session is alive: a
-// live browser can always type another key, so flows must keep waiting for
-// real input instead of ending early.
-func (s *Session) HasPendingKeys() bool { return !s.IsExhausted() }
-
-// Write implements io.Writer: flow output accumulates in the display buffer
-// and is flushed to the browser by the render pump / explicit renders.
-func (s *Session) Write(p []byte) (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
-		return len(p), nil
-	}
-	n, err := s.buf.Write(p)
-	if n > 0 {
-		s.dirty = true
-	}
-	return n, err
+// stopQuiz clears any pending interaction state before switching views.
+func (s *Session) stopQuiz() {
+	s.awaiting = ""
+	s.prompt = ""
+	s.pendingReset = nil
 }
 
-// Clean clears the display buffer (the web equivalent of clearing the
-// terminal screen).
-func (s *Session) Clean() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.buf.Reset()
-	s.dirty = true
+// ---------- select handling ----------
+
+func (s *Session) handleSelect(dest string) bool {
+	switch dest {
+	case app.DestMainMenu:
+		s.stopQuiz()
+		return s.sendState(s.menuState())
+	case app.DestQuit:
+		return s.closeWithGoodbye()
+	case app.DestPhrases:
+		return s.startPhrases()
+	case app.DestHiragana:
+		return s.startKanaQuiz(&s.hiraScr)
+	case app.DestKatakana:
+		return s.startKanaQuiz(&s.kataScr)
+	case app.DestResetHiragana:
+		return s.startReset("Хирагана", "все выученные знаки будут снова заданы.", &s.hiraScr)
+	case app.DestResetKatakana:
+		return s.startReset("Катакана", "все выученные знаки будут снова заданы.", &s.kataScr)
+	case app.DestResetPhrases:
+		return s.startReset("Фразы", "все выученные фразы будут снова показаны.", nil)
+	default:
+		return s.sendState(s.menuState())
+	}
 }
 
-// render converts the buffered display text and sends it to the browser.
-// The client pretty-prints the plain text itself, so identical consecutive
-// frames are skipped and no HTML wrapping happens here.
-func (s *Session) render() {
-	s.mu.Lock()
-	text := RenderDisplay(s.buf.String())
-	s.dirty = false
-	if text == s.lastFrame {
-		s.mu.Unlock()
-		return
-	}
-	s.lastFrame = text
-	s.mu.Unlock()
-	_ = s.c.send(wsMessage{Type: "render", HTML: text})
+// closeWithGoodbye ends the session after telling the client to show the
+// goodbye screen (the read loop keeps the socket open long enough to flush).
+func (s *Session) closeWithGoodbye() bool {
+	ok := s.c.send(wsMessage{Type: "state", State: &State{
+		View:  ViewDone,
+		Title: "До встречи!",
+		Done:  &DoneInfo{Message: "Сессия завершена. Обновите страницу, чтобы начать заново."},
+	}})
+	s.Close()
+	return ok == nil
 }
 
-// RenderDisplay normalises the plain-text display buffer for the browser:
-// invalid UTF-8 is replaced and backspace echo sequences emitted by ReadLine
-// are dropped (the client renders the final state of each line).
-// Exposed for tests.
-func RenderDisplay(text string) string {
-	return strings.NewReplacer("\b \b", "", "\b", "").
-		Replace(strings.ToValidUTF8(text, "\uFFFD"))
+// ---------- kana quiz ----------
+
+func (s *Session) knownSet(table map[string]string, list []string) map[string]bool {
+	known := map[string]bool{}
+	for _, k := range list {
+		if _, ok := table[k]; ok {
+			known[k] = true
+		}
+	}
+	return known
 }
 
-// decodeKey converts a browser key message into a keys.Key event shaped just
-// like the ones the real terminal listener produces (see kbd.RuneKey).
-func decodeKey(m wsMessage) keys.Key {
-	switch m.Code {
-	case "Enter":
-		return keys.Key{Code: keys.Enter}
-	case "Escape":
-		return keys.Key{Code: keys.Escape}
-	case "Backspace":
-		return keys.Key{Code: keys.Backspace}
-	case "Tab":
-		return keys.Key{Code: keys.Tab}
-	case "Space":
-		return kbd.RuneKey(' ')
+func sortedKeyList(known map[string]bool) []string {
+	out := make([]string, 0, len(known))
+	for k := range known {
+		out = append(out, k)
 	}
-	if r := firstRune(m.Rune); r != 0 {
-		return kbd.RuneKey(r)
-	}
-	return keys.Key{Code: keys.RuneKey}
+	sort.Strings(out)
+	return out
 }
 
-func firstRune(s string) rune {
-	for _, r := range s {
-		return r
+func knownIntersection(known map[string]bool, table map[string]string) int {
+	n := 0
+	for k := range known {
+		if _, ok := table[k]; ok {
+			n++
+		}
 	}
-	return 0
+	return n
 }
 
-// MustJSON marshals v or returns "{}"; used by the handlers.
-func MustJSON(v any) []byte {
-	raw, err := json.Marshal(v)
-	if err != nil {
-		return []byte("{}")
+func (s *Session) startKanaQuiz(sc *scriptSpec) bool {
+	p := s.app.LoadProgress()
+	known := s.knownSet(sc.table, *sc.knownField(&p))
+	if len(known) >= len(sc.table) {
+		s.stopQuiz()
+		return s.sendState(&State{
+			View:  ViewDone,
+			Title: sc.title + " уже выучена",
+			Done:  &DoneInfo{Message: fmt.Sprintf("Вы знаете все %d знаков. Сбросьте прогресс, чтобы пройти ещё раз.", len(sc.table))},
+		})
 	}
-	return raw
+	return s.askNextKana(sc, known)
+}
+
+// askNextKana picks a random unknown kana, stores it as the pending prompt
+// and renders the quiz card.
+func (s *Session) askNextKana(sc *scriptSpec, known map[string]bool) bool {
+	pool := make([]string, 0, len(sc.table))
+	for k := range sc.table {
+		if !known[k] {
+			pool = append(pool, k)
+		}
+	}
+	if len(pool) == 0 {
+		return s.showKanaStats(sc, known)
+	}
+	rand.Shuffle(len(pool), func(i, j int) { pool[i], pool[j] = pool[j], pool[i] })
+	k := pool[0]
+
+	s.prompt = k
+	s.awaiting = "answer"
+	return s.sendState(&State{
+		View:  ViewQuiz,
+		Title: sc.title,
+		Quiz: &Quiz{
+			Kind:   "kana",
+			Prompt: k,
+			Input:  true,
+			Hint:   fmt.Sprintf("Уже выучено: %d из %d", knownIntersection(known, sc.table), len(sc.table)),
+		},
+	})
+}
+
+func (s *Session) handleAnswer(value string) bool {
+	if s.awaiting != "answer" || s.prompt == "" {
+		return true // stale answer: ignore
+	}
+
+	// Phrases flow: the answer carries the choice made for the phrase.
+	if strings.HasPrefix(s.prompt, phrasePromptPrefix) {
+		return s.handlePhraseChoice(strings.TrimPrefix(s.prompt, phrasePromptPrefix), value)
+	}
+
+	// Kana quiz: determine which script the pending prompt belongs to.
+	sc := &s.hiraScr
+	if _, ok := sc.table[s.prompt]; !ok {
+		sc = &s.kataScr
+	}
+	if _, ok := sc.table[s.prompt]; !ok {
+		return true
+	}
+	p := s.app.LoadProgress()
+	known := s.knownSet(sc.table, *sc.knownField(&p))
+	answer := strings.ToLower(strings.TrimSpace(value))
+	correct := answer == sc.table[s.prompt]
+
+	var feedback *State
+	if correct {
+		known[s.prompt] = true
+		*sc.knownField(&p) = sortedKeyList(known)
+		if err := s.app.SaveProgress(p); err != nil {
+			fmt.Printf("web: save progress: %v\n", err)
+		}
+		feedback = &State{View: ViewQuiz, Title: sc.title, Quiz: &Quiz{
+			Kind: "kana", Prompt: s.prompt, Translation: sc.table[s.prompt],
+			Hint: "Верно! Отлично!", Input: false,
+		}}
+	} else {
+		feedback = &State{View: ViewQuiz, Title: sc.title, Quiz: &Quiz{
+			Kind: "kana", Prompt: s.prompt, Translation: sc.table[s.prompt],
+			Hint: wrongAnswerHint(answer), Input: false, Retry: true,
+		}}
+	}
+	s.sendState(feedback)
+
+	if correct && knownIntersection(known, sc.table) >= len(sc.table) {
+		return s.showKanaStats(sc, known)
+	}
+	return s.askNextKana(sc, known)
+}
+
+func wrongAnswerHint(answer string) string {
+	if strings.TrimSpace(answer) == "" {
+		return "Пустой ответ — попробуйте ещё раз."
+	}
+	return "Неверно. Этот знак вернётся в очереди ещё раз."
+}
+
+func (s *Session) showKanaStats(sc *scriptSpec, known map[string]bool) bool {
+	s.stopQuiz()
+
+	knownItems := make([]StatItem, 0)
+	restItems := make([]StatItem, 0)
+	for _, k := range sortedKeyList(known) {
+		knownItems = append(knownItems, StatItem{Symbol: k, Reading: sc.table[k]})
+	}
+	var restKeys []string
+	for k := range sc.table {
+		if !known[k] {
+			restKeys = append(restKeys, k)
+		}
+	}
+	sort.Strings(restKeys)
+	for _, k := range restKeys {
+		restItems = append(restItems, StatItem{Symbol: k, Reading: sc.table[k]})
+	}
+	return s.sendState(&State{
+		View:  ViewStats,
+		Title: "Статистика · " + sc.title,
+		Stats: &Stats{Correct: len(knownItems), Total: len(sc.table), Known: knownItems, Rest: restItems},
+	})
+}
+
+// ---------- phrases flow ----------
+
+const phrasePromptPrefix = "phrase:"
+
+func (s *Session) startPhrases() bool { return s.askNextPhrase(nil) }
+
+func (s *Session) askNextPhrase(retry map[string]bool) bool {
+	p := s.app.LoadProgress()
+	known := s.knownSet(s.phraseTable, p.KnownPhrases)
+	if len(known) >= len(s.phraseTable) {
+		s.stopQuiz()
+		return s.sendState(&State{
+			View:  ViewDone,
+			Title: "Все фразы выучены!",
+			Done:  &DoneInfo{Message: fmt.Sprintf("Вы можете перевести все %d фраз. Отличная работа!", len(s.phraseTable))},
+		})
+	}
+	queue := make([]string, 0, len(s.phraseTable))
+	retryLeft := make([]string, 0)
+	for k := range s.phraseTable {
+		if known[k] {
+			continue
+		}
+		queue = append(queue, k)
+		if retry[k] {
+			retryLeft = append(retryLeft, k)
+		}
+	}
+	pool := queue
+	if len(retryLeft) > 0 {
+		pool = retryLeft
+	}
+	rand.Shuffle(len(pool), func(i, j int) { pool[i], pool[j] = pool[j], pool[i] })
+	k := pool[0]
+
+	s.prompt = phrasePromptPrefix + k
+	s.awaiting = "answer"
+	return s.sendState(&State{
+		View:  ViewQuiz,
+		Title: "Фразы",
+		Quiz: &Quiz{
+			Kind:   "phrase",
+			Prompt: k,
+			Hint:   fmt.Sprintf("Уже выучено: %d из %d", knownIntersection(known, s.phraseTable), len(s.phraseTable)),
+			Retry:  retry[k],
+		},
+	})
+}
+
+// handlePhraseChoice processes a button choice for the pending phrase:
+// "know" marks it learned, "show" reveals the translation (staying on the
+// same phrase), "unknown" puts it at the end of the rotation, "menu" leaves
+// the flow.
+func (s *Session) handlePhraseChoice(key, choice string) bool {
+	value, ok := s.phraseTable[key]
+	if !ok {
+		return true
+	}
+	switch choice {
+	case "show":
+		return s.sendState(&State{View: ViewQuiz, Title: "Фразы", Quiz: &Quiz{
+			Kind: "phrase", Prompt: key, Translation: value,
+		}})
+	case "menu":
+		s.stopQuiz()
+		return s.sendState(s.menuState())
+	case "know", "unknown":
+		p := s.app.LoadProgress()
+		known := s.knownSet(s.phraseTable, p.KnownPhrases)
+		retry := map[string]bool{}
+		if choice == "know" {
+			known[key] = true
+			p.KnownPhrases = sortedKeyList(known)
+			if err := s.app.SaveProgress(p); err != nil {
+				fmt.Printf("web: save progress: %v\n", err)
+			}
+		} else {
+			retry[key] = true
+		}
+		s.stopQuiz()
+		return s.askNextPhrase(retry)
+	}
+	return true
+}
+
+// ---------- reset flows ----------
+
+func (s *Session) startReset(label, detail string, sc *scriptSpec) bool {
+	s.stopQuiz()
+	t := &resetTarget{label: label}
+	if sc != nil {
+		t.field = sc.knownField
+	} else {
+		t.field = func(p *app.ProgressData) *[]string { return &p.KnownPhrases }
+	}
+	s.pendingReset = t
+	s.awaiting = "confirm"
+	return s.sendState(&State{
+		View:   ViewNotice,
+		Title:  "Сброс прогресса",
+		Notice: &NoticeInfo{Message: "Прогресс по разделу «" + label + "» будет удалён: " + detail, Confirm: true},
+	})
+}
+
+func (s *Session) handleConfirm(yes bool) bool {
+	if s.awaiting != "confirm" || s.pendingReset == nil {
+		return true
+	}
+	t := s.pendingReset
+	s.stopQuiz()
+
+	if yes {
+		p := s.app.LoadProgress()
+		*t.field(&p) = nil
+		if err := s.app.SaveProgress(p); err != nil {
+			return s.sendState(&State{View: ViewNotice, Title: "Ошибка",
+				Notice: &NoticeInfo{Message: fmt.Sprintf("Не удалось сбросить прогресс: %v", err)}})
+		}
+	}
+	return s.sendState(s.menuState())
 }
 
 var (
-	_ io.Writer    = (*Session)(nil)
-	_ kbd.Listener = (*Session)(nil)
+	_ = strings.TrimSpace
+	_ = sort.Strings
 )
