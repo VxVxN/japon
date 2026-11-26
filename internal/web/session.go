@@ -575,6 +575,7 @@ func (s *Session) askNextPhrase(retry map[string]bool) bool {
 		Quiz: &Quiz{
 			Kind:    "phrase",
 			Prompt:  k,
+			Input:   true, // show the phrase action buttons (know / show / unknown / menu)
 			Section: "phrases",
 			Hint:    fmt.Sprintf("Уже выучено: %d из %d", knownIntersection(known, s.phraseTable), len(s.phraseTable)),
 			Retry:   retry[k],
@@ -593,8 +594,19 @@ func (s *Session) handlePhraseChoice(key, choice string) bool {
 	}
 	switch choice {
 	case "show":
+		// Reveal the translation but keep the phrase in front of the user:
+		// the action buttons stay visible so they can still confirm ("know")
+		// or skip ("unknown") this very phrase before moving on to the next
+		// one. The session remains in awaitAnswer for this phrase.
+		p := s.app.LoadProgress()
+		known := s.knownSet(s.phraseTable, p.KnownPhrases)
 		return s.sendState(&State{View: ViewQuiz, Title: "Фразы", Quiz: &Quiz{
-			Kind: "phrase", Prompt: key, Translation: value, Section: "phrases",
+			Kind:        "phrase",
+			Prompt:      key,
+			Translation: value,
+			Section:     "phrases",
+			Input:       true,
+			Hint:        fmt.Sprintf("Уже выучено: %d из %d", knownIntersection(known, s.phraseTable), len(s.phraseTable)),
 		}})
 	case "menu":
 		s.stopQuiz()
