@@ -93,10 +93,12 @@ type Session struct {
 	quit     chan struct{}
 	quitOnce sync.Once
 	waiter   kbd.Waitable // current inner listener while a flow runs
+	pumpDone chan struct{} // closed when the render pump goroutine exits
 
 	mu        sync.Mutex
 	buf       bytes.Buffer // pending display output (accumulates until rendered)
 	lastFrame string       // last HTML sent to the browser (for dedup)
+	dirty     bool         // buffer changed since the last render
 	keys      chan keys.Key
 	keyClosed bool
 	exhausted bool // key source ran dry (browser gone / session closing)
@@ -107,10 +109,11 @@ type Session struct {
 // from the HTTP handler so tests can create sessions over a fake transport.
 func NewSession(c conn, h *hub) *Session {
 	s := &Session{
-		c:     c,
-		hub:   h,
-		quit:  make(chan struct{}),
-		keys:  make(chan keys.Key),
+		c:        c,
+		hub:      h,
+		quit:     make(chan struct{}),
+		pumpDone: make(chan struct{}),
+		keys:     make(chan keys.Key),
 	}
 
 	a := app.New()
@@ -167,6 +170,8 @@ const menuText = "Choose a section:\n" +
 func (s *Session) Serve() {
 	defer s.Close()
 
+	go s.pump()
+
 	// Wrap the session listener so flows can report completion: every
 	// interactive flow listens through kbd.Watch, whose Done channel we use
 	// to detect "the flow returned" vs "still waiting for input".
@@ -191,6 +196,28 @@ func (s *Session) Serve() {
 		// because the session died, the loop condition below ends Serve.
 		if s.IsClosed() {
 			return
+		}
+	}
+}
+
+// pump periodically flushes the display buffer to the browser so keystroke
+// echo (typing, backspaces) appears live, not only when a flow finishes.
+func (s *Session) pump() {
+	defer close(s.pumpDone)
+	ticker := time.NewTicker(60 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-s.quit:
+			s.render() // final flush
+			return
+		case <-ticker.C:
+			s.mu.Lock()
+			dirty := s.dirty
+			s.mu.Unlock()
+			if dirty {
+				s.render()
+			}
 		}
 	}
 }
@@ -228,6 +255,7 @@ func (s *Session) Close() {
 		if w != nil {
 			w.Cancel()
 		}
+		<-s.pumpDone // let the pump deliver its final frame
 	}
 
 	_ = s.c.send(wsMessage{Type: "closed"})
@@ -304,14 +332,18 @@ func (s *Session) IsExhausted() bool {
 func (s *Session) HasPendingKeys() bool { return !s.IsExhausted() }
 
 // Write implements io.Writer: flow output accumulates in the display buffer
-// and is flushed to the browser on the next render.
+// and is flushed to the browser by the render pump / explicit renders.
 func (s *Session) Write(p []byte) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
 		return len(p), nil
 	}
-	return s.buf.Write(p)
+	n, err := s.buf.Write(p)
+	if n > 0 {
+		s.dirty = true
+	}
+	return n, err
 }
 
 // Clean clears the display buffer (the web equivalent of clearing the
@@ -320,36 +352,33 @@ func (s *Session) Clean() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.buf.Reset()
+	s.dirty = true
 }
 
-// render converts the buffered display text to HTML and sends it to the
-// browser. Identical consecutive frames are skipped.
+// render converts the buffered display text and sends it to the browser.
+// The client pretty-prints the plain text itself, so identical consecutive
+// frames are skipped and no HTML wrapping happens here.
 func (s *Session) render() {
 	s.mu.Lock()
-	html := RenderDisplay(s.buf.String())
-	if html == s.lastFrame {
+	text := RenderDisplay(s.buf.String())
+	s.dirty = false
+	if text == s.lastFrame {
 		s.mu.Unlock()
 		return
 	}
-	s.lastFrame = html
+	s.lastFrame = text
 	s.mu.Unlock()
-	_ = s.c.send(wsMessage{Type: "render", HTML: html})
+	_ = s.c.send(wsMessage{Type: "render", HTML: text})
 }
 
-// RenderDisplay turns the plain-text display buffer into safe HTML. The
-// text is escaped; backspace echo sequences emitted by ReadLine are dropped.
+// RenderDisplay normalises the plain-text display buffer for the browser:
+// invalid UTF-8 is replaced and backspace echo sequences emitted by ReadLine
+// are dropped (the client renders the final state of each line).
 // Exposed for tests.
 func RenderDisplay(text string) string {
-	esc := escaper.Replace(strings.ToValidUTF8(text, "\uFFFD"))
-	return "<pre>" + esc + "</pre>"
+	return strings.NewReplacer("\b \b", "", "\b", "").
+		Replace(strings.ToValidUTF8(text, "\uFFFD"))
 }
-
-var escaper = strings.NewReplacer(
-	"&", "&amp;",
-	"<", "&lt;",
-	">", "&gt;",
-	"\b", "", // backspace echo sequences from ReadLine
-)
 
 // decodeKey converts a browser key message into a keys.Key event shaped just
 // like the ones the real terminal listener produces (see kbd.RuneKey).
