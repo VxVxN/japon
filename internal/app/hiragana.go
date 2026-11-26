@@ -25,7 +25,10 @@ func (a *App) printLearningHiraganaMenu() {
 
 // ReadLine collects typed characters until Enter is pressed. Backspace removes
 // the last character and Escape aborts the input. It returns the raw text and
-// whether the user aborted with Escape.
+// whether the user aborted with Escape. When the key source runs dry before a
+// terminating key arrives (exhausted fake in tests, closed web session), the
+// input is treated as aborted so that callers can end the current interaction
+// instead of looping forever on unanswered prompts.
 func (a *App) ReadLine() (text string, aborted bool) {
 	_ = a.Listener.Listen(func(k keys.Key) bool {
 		switch k.Code {
@@ -42,6 +45,12 @@ func (a *App) ReadLine() (text string, aborted bool) {
 			}
 			return false
 		default:
+			// Only actually typed characters count as input. Control keys
+			// (e.g. a lone Backspace on empty input) must not stop the
+			// listener and must not be mistaken for an answer.
+			if len(k.Runes) == 0 {
+				return false
+			}
 			for _, r := range k.Runes {
 				text += string(r)
 				fmt.Fprint(a.Out, string(r))
@@ -49,7 +58,26 @@ func (a *App) ReadLine() (text string, aborted bool) {
 			return false
 		}
 	})
+	if !aborted && sourceQuiet(a.Listener) {
+		// Listen returned without Enter/Escape because the key source ran
+		// out of events; report an abort so flows terminate gracefully.
+		aborted = true
+	}
 	return text, aborted
+}
+
+// sourceQuiet reports whether l is a key source that has run dry: it either
+// exposes IsExhausted directly (kbd.Fake, the web session listener) or wraps
+// one (kbd.Watch). A listener without such an interface (the real terminal)
+// is never considered quiet.
+func sourceQuiet(l kbd.Listener) bool {
+	if q, ok := l.(interface{ IsExhausted() bool }); ok {
+		return q.IsExhausted()
+	}
+	if w, ok := l.(interface{ Inner() kbd.Listener }); ok {
+		return sourceQuiet(w.Inner())
+	}
+	return false
 }
 
 // waitForEnter waits for Enter; returns true if the user pressed Escape.

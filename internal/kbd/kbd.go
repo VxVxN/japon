@@ -46,7 +46,6 @@ func NewFake(k ...keys.Key) *Fake {
 // finish their current interaction.
 func (f *Fake) Listen(h Handler) error {
 	if len(f.Keys) == 0 {
-		f.Exhausted = true
 		return nil
 	}
 	for len(f.Keys) > 0 {
@@ -61,6 +60,16 @@ func (f *Fake) Listen(h Handler) error {
 	return nil
 }
 
+// IsExhausted reports whether a previous Listen call consumed the whole key
+// sequence without the handler stopping on its own. It is intentionally NOT
+// set when the handler terminates on the very last key of the sequence: that
+// means the interaction received a real answer (Enter/Escape), and flows use
+// this method to distinguish "the user answered" from "the key source ran
+// dry" (see Watch and the quiet() helpers in the app package). Once the
+// sequence is exhausted, every subsequent Listen call returns immediately
+// instead of spinning forever.
+func (f *Fake) IsExhausted() bool { return f.Exhausted }
+
 // Watch wraps the given Listener and sets *seen to true whenever a key event
 // actually reaches the handler. Flows use it together with the optional
 // IsExhausted method to distinguish "the user answered" from "the key source
@@ -74,6 +83,10 @@ type watcher struct {
 	inner Listener
 	seen  *bool
 }
+
+// Inner exposes the wrapped listener so that callers can probe it for the
+// optional IsExhausted method (see the quiet() helpers in the app package).
+func (w *watcher) Inner() Listener { return w.inner }
 
 func (w *watcher) Listen(h Handler) error {
 	return w.inner.Listen(func(k keys.Key) bool {
