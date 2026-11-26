@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Japan — обучение</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>日本語 · Japan learner</h1>
+  <span id="status" class="status">подключение…</span>
+</header>
+
+<main>
+  <section id="screen" aria-live="polite">
+    <pre id="display">Загрузка…</pre>
+  </section>
+
+  <aside id="sidebar">
+    <div class="group">
+      <h2>Меню</h2>
+      <button data-key="1">1 · Фразы</button>
+      <button data-key="2">2 · Хирагана</button>
+      <button data-key="3">3 · Катакана</button>
+      <button data-key="4">4 · Сброс хираганы</button>
+      <button data-key="5">5 · Сброс катаканы</button>
+      <button data-key="6">6 · Сброс фраз</button>
+      <button data-key="0" class="danger">0 · Выход</button>
+    </div>
+
+    <div class="group">
+      <h2>Быстрый ответ</h2>
+      <button data-key="1">1 · Могу перевести</button>
+      <button data-key="2">2 · Показать перевод</button>
+      <button data-key="3">3 · Не могу перевести</button>
+      <button data-key="4">4 · В главное меню</button>
+    </div>
+
+    <div class="group">
+      <h2>Ввод</h2>
+      <input id="line" type="text" autocomplete="off" placeholder="чтение ромадзи…" spellcheck="false">
+      <div class="row">
+        <button id="enterBtn">Enter ⏎</button>
+        <button id="escBtn">Esc</button>
+        <button id="bsBtn">⌫</button>
+      </div>
+      <p class="hint">Можно печатать прямо на странице — клавиши уходят на сервер как в терминале.</p>
+    </div>
+  </aside>
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

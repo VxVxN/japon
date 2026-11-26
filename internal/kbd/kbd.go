@@ -1,8 +1,10 @@
 package kbd
 
 import (
-"atomicgo.dev/keyboard"
-"atomicgo.dev/keyboard/keys"
+	"sync"
+
+	"atomicgo.dev/keyboard"
+	"atomicgo.dev/keyboard/keys"
 )
 
 // Handler processes a single key event. It returns true when the listener
@@ -126,13 +128,67 @@ func BackspaceKey() keys.Key { return keys.Key{Code: keys.Backspace} }
 // IsExhausted method to distinguish "the user answered" from "the key source
 // ran dry", which would otherwise cause infinite loops when no further keys
 // can arrive (exhausted fake in tests).
+//
+// The returned listener also implements the Waitable interface: web sessions
+// use Done/Cancel to wait until an interactive flow finishes (or to abort a
+// flow that is blocked waiting for input when the browser goes away).
 func Watch(l Listener, seen *bool) Listener {
-return &watcher{inner: l, seen: seen}
+	return &watcher{inner: l, seen: seen}
+}
+
+// Waitable is implemented by listeners created with Watch. Done returns a
+// channel that is closed once the most recent Listen call completes; Cancel
+// aborts a blocked Listen call (the wrapped source may still deliver the
+// pending event later, but the caller stops waiting for it).
+type Waitable interface {
+	Done() <-chan struct{}
+	Cancel()
 }
 
 type watcher struct {
-inner Listener
-seen  *bool
+	inner Listener
+	seen  *bool
+
+	mu     sync.Mutex
+	done   chan struct{} // nil means "already done"
+	closed bool          // the current done channel was closed
+}
+
+func (w *watcher) Done() <-chan struct{} {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.done == nil {
+		ch := make(chan struct{})
+		close(ch)
+		return ch
+	}
+	return w.done
+}
+
+func (w *watcher) Cancel() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.done != nil && !w.closed {
+		close(w.done)
+		w.closed = true
+	}
+}
+
+func (w *watcher) beginListen() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.done = make(chan struct{})
+	w.closed = false
+}
+
+func (w *watcher) endListen() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.done != nil && !w.closed {
+		close(w.done)
+		w.closed = true
+	}
+	w.done = nil
 }
 
 // Inner exposes the wrapped listener so callers can probe it for the
@@ -140,12 +196,14 @@ seen  *bool
 func (w *watcher) Inner() Listener { return w.inner }
 
 func (w *watcher) Listen(h Handler) error {
-return w.inner.Listen(func(k keys.Key) bool {
-if w.seen != nil {
-*w.seen = true
-}
-return h(k)
-})
+	w.beginListen()
+	defer w.endListen()
+	return w.inner.Listen(func(k keys.Key) bool {
+		if w.seen != nil {
+			*w.seen = true
+		}
+		return h(k)
+	})
 }
 
 func (w *watcher) IsExhausted() bool {
