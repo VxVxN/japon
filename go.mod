@@ -2,7 +2,10 @@ module test
 
 go 1.25.0
 
-require atomicgo.dev/keyboard v0.2.10
+require (
+	atomicgo.dev/keyboard v0.2.10
+	github.com/gorilla/websocket v1.5.3
+)
 
 require (
 	github.com/containerd/console v1.0.5 // indirect

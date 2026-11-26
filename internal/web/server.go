@@ -128,7 +128,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 
 	// Keep the connection alive while the session runs; the standard
 	// deadline/pong machinery detects dead browsers.
-	_ = c.SetReadLimit(4096)
+	c.SetReadLimit(4096)
 	_ = c.SetReadDeadline(time.Now().Add(pongWait))
 	c.SetPongHandler(func(string) error {
 		return c.SetReadDeadline(time.Now().Add(pongWait))
