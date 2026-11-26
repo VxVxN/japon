@@ -40,6 +40,7 @@ type State struct {
 	Title    string        `json:"title,omitempty"`
 	Subtitle string        `json:"subtitle,omitempty"`
 	Menu     []MenuItem    `json:"menu,omitempty"`
+	Resets   []MenuItem    `json:"resets,omitempty"` // compact reset-progress buttons on the main menu
 	Quiz     *Quiz         `json:"quiz,omitempty"`
 	Stats    *Stats        `json:"stats,omitempty"`
 	Done     *DoneInfo     `json:"done,omitempty"`

@@ -268,9 +268,13 @@ func (s *Session) menuState() *State {
 			{ID: app.DestPhrases, Label: "Учим фразы", Icon: "book"},
 			{ID: app.DestHiragana, Label: "Учим хирагану", Icon: "pencil"},
 			{ID: app.DestKatakana, Label: "Учим катакану", Icon: "kata"},
-			{ID: app.DestResetPhrases, Label: "Сброс прогресса · Фразы", Icon: "reset", Style: "danger"},
-			{ID: app.DestResetHiragana, Label: "Сброс прогресса · Хирагана", Icon: "reset", Style: "danger"},
-			{ID: app.DestResetKatakana, Label: "Сброс прогресса · Катакана", Icon: "reset", Style: "danger"},
+		},
+		// Progress resets are secondary actions: the client renders them as a
+		// compact row of small buttons under the menu instead of full cards.
+		Resets: []MenuItem{
+			{ID: app.DestResetPhrases, Label: "Фразы", Icon: "reset", Style: "danger"},
+			{ID: app.DestResetHiragana, Label: "Хирагана", Icon: "reset", Style: "danger"},
+			{ID: app.DestResetKatakana, Label: "Катакана", Icon: "reset", Style: "danger"},
 		},
 	}
 }

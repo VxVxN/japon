@@ -179,6 +179,23 @@
       grid.appendChild(card);
     });
     root.appendChild(grid);
+
+    // Secondary "reset progress" actions: a compact row of small buttons so
+    // they don't take up the space of full menu cards.
+    if ((state.resets || []).length > 0) {
+      var rz = el("div", "reset-row");
+      rz.appendChild(el("span", "reset-caption", "Сброс прогресса:"));
+      state.resets.forEach(function (item) {
+        var b = el("button", "reset-btn");
+        b.type = "button";
+        b.title = "Сбросить прогресс: " + item.label;
+        b.appendChild(icon(item.icon || "reset", "tiny"));
+        b.appendChild(el("span", null, item.label));
+        b.addEventListener("click", function () { sendAction("select", item.id); });
+        rz.appendChild(b);
+      });
+      root.appendChild(rz);
+    }
   }
 
   function renderQuiz(root, quiz) {
