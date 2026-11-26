@@ -181,7 +181,18 @@
           line.appendChild(document.createTextNode(" — " + quiz.translation));
           fb.appendChild(line);
         }
+        // After a correct/incorrect kana answer the session waits for another
+        // "answer" action to move on: give the user an explicit continue button.
+        var contRow = el("div", "feedback-actions");
+        contRow.appendChild(button("Продолжить", "check", "btn-primary", function () {
+          sendAction("answer", "continue");
+        }));
+        fb.appendChild(contRow);
         wrap.appendChild(fb);
+        setTimeout(function () {
+          var b = contRow.querySelector("button");
+          if (b) b.focus();
+        }, 30);
       } else {
         wrap.appendChild(el("p", "quiz-hint", quiz.hint));
       }

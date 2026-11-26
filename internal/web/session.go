@@ -268,9 +268,9 @@ func (s *Session) menuState() *State {
 			{ID: app.DestPhrases, Label: "Учим фразы", Icon: "book"},
 			{ID: app.DestHiragana, Label: "Учим хирагану", Icon: "pencil"},
 			{ID: app.DestKatakana, Label: "Учим катакану", Icon: "kata"},
-			{ID: app.DestResetHiragana, Label: "Сбросить хирагану", Icon: "reset", Style: "danger"},
-			{ID: app.DestResetKatakana, Label: "Сбросить катакану", Icon: "reset", Style: "danger"},
-			{ID: app.DestResetPhrases, Label: "Сбросить фразы", Icon: "reset", Style: "danger"},
+			{ID: app.DestResetHiragana, Label: "Сброс прогресса · Хирагана", Icon: "reset", Style: "danger"},
+			{ID: app.DestResetKatakana, Label: "Сброс прогресса · Катакана", Icon: "reset", Style: "danger"},
+			{ID: app.DestResetPhrases, Label: "Сброс прогресса · Фразы", Icon: "reset", Style: "danger"},
 		},
 	}
 }
@@ -477,7 +477,7 @@ func (s *Session) handleAnswer(value string) bool {
 			Hint: "Верно! Отлично!", Input: false, Correct: ptr(true), Section: sc.name,
 		}}
 		// Pause on the feedback screen so the user sees the result; the client
-		// sends another "answer" action to continue.
+		// shows a "Продолжить" button that sends another "answer" action.
 		s.awaiting = awaitFeedback
 		s.pendingRetry = false
 		return s.sendState(feedback)
@@ -491,7 +491,7 @@ func (s *Session) handleAnswer(value string) bool {
 		Hint: wrongAnswerHint(answer), Input: false, Correct: ptr(false), Section: sc.name,
 	}}
 	// Pause on the feedback screen so the user sees the correct reading; the
-	// client sends another "answer" action to continue.
+	// client shows a "Продолжить" button that sends another "answer" action.
 	s.awaiting = awaitFeedback
 	s.pendingRetry = true
 	return s.sendState(feedback)
