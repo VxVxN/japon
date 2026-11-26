@@ -1,37 +1,32 @@
 package main
 
 import (
-	"test/internal/app"
-	"test/internal/data"
-	"test/internal/ui"
+	"flag"
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"test/internal/web"
 )
 
 func main() {
-	a := app.New()
-	a.NavigateTo = navigateTo(a)
-	ui.NewMainMenu(a).Run()
-}
+	addr := flag.String("addr", ":8080", "address the web server listens on")
+	flag.Parse()
 
-// navigateTo dispatches a named destination to its flow. It breaks the
-// mainMenu <-> learning flows recursion by returning a closure bound to the
-// app instance.
-func navigateTo(a *app.App) func(name string) {
-	return func(name string) {
-		switch name {
-		case app.DestPhrases:
-			a.RunLearningPhrases(data.AllPhrases())
-		case app.DestHiragana:
-			a.RunLearningHiragana(data.Hiragana)
-		case app.DestKatakana:
-			a.RunLearningKatakana(data.Katakana)
-		case app.DestResetHiragana:
-			a.RunResetHiraganaProgress()
-		case app.DestResetKatakana:
-			a.RunResetKatakanaProgress()
-		case app.DestResetPhrases:
-			a.RunResetPhrasesProgress()
-		default: // app.DestMainMenu
-			ui.NewMainMenu(a).Run()
-		}
+	srv := web.NewServer()
+
+	// Stop the server (and every live session) on Ctrl+C / SIGTERM.
+	go func() {
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+		<-sig
+		log.Println("web: shutting down")
+		srv.Shutdown()
+	}()
+
+	log.Printf("web app listening on %s, open http://localhost%s in your browser", *addr, *addr)
+	if err := srv.ListenAndServe(*addr); err != nil {
+		log.Fatalf("web: %v", err)
 	}
 }

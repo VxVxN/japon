@@ -132,7 +132,7 @@ func BackspaceKey() keys.Key { return keys.Key{Code: keys.Backspace} }
 // The returned listener also implements the Waitable interface: web sessions
 // use Done/Cancel to wait until an interactive flow finishes (or to abort a
 // flow that is blocked waiting for input when the browser goes away).
-func Watch(l Listener, seen *bool) Listener {
+func Watch(l Listener, seen *bool) Waitable {
 	return &watcher{inner: l, seen: seen}
 }
 
@@ -141,6 +141,7 @@ func Watch(l Listener, seen *bool) Listener {
 // aborts a blocked Listen call (the wrapped source may still deliver the
 // pending event later, but the caller stops waiting for it).
 type Waitable interface {
+	Listener
 	Done() <-chan struct{}
 	Cancel()
 }
