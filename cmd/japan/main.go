@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	addr := flag.String("addr", ":8080", "address the web server listens on")
+	addr := flag.String("addr", ":8095", "address the web server listens on")
 	flag.Parse()
 
 	srv := web.NewServer()
