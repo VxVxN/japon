@@ -27,6 +27,10 @@ type App struct {
 	ResetHiragana        func() error
 	ResetKatakana        func() error
 	ResetPhrasesProgress func() error
+
+	// answerSink, when set via setAnswerSink (see hiragana.go), receives a
+	// pointer to the text of every Enter-terminated line read by ReadLine.
+	answerSink **string
 }
 
 // New creates an App wired to the real terminal. navigateTo should be set by

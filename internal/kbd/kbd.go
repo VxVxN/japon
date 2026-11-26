@@ -27,11 +27,17 @@ func (Real) Listen(h Handler) error {
 // Fake feeds a predefined sequence of keys to the handler. It is intended
 // for tests: every consumed key is recorded in Consumed. If the sequence
 // ends before the handler stops, Listen returns normally and Exhausted is
-// set to true.
+// set to true. When the optional OnDrained hook is set, it runs at that
+// moment; interactive flows (see cmd/web) use it to deliver one final
+// synthetic Enter so an in-progress line is still answered when the source
+// runs dry - exactly like a user pressing Enter right before closing the
+// session. The hook must not feed new keys into Keys while Listen is
+// iterating (that would loop forever); it only signals waiting readers.
 type Fake struct {
 	Keys      []keys.Key
 	Consumed  []keys.Key
 	Exhausted bool
+	OnDrained func()
 }
 
 // NewFake builds a fake listener for the given key sequence.
@@ -60,6 +66,9 @@ func (f *Fake) Listen(h Handler) error {
 		}
 	}
 	f.Exhausted = true
+	if f.OnDrained != nil {
+		f.OnDrained()
+	}
 	return nil
 }
 

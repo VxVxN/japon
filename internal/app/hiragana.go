@@ -35,15 +35,18 @@ func (a *App) printLearningHiraganaMenu() {
 func (a *App) ReadLine() (text string, aborted bool) {
 	stoppedOnKey := false
 	var answered string
+	noAnswer := true
 	_ = a.Listener.Listen(func(k keys.Key) bool {
 		switch k.Code {
 		case keys.Escape:
 			aborted = true
 			stoppedOnKey = true
+			noAnswer = false
 			return true
 		case keys.Enter:
 			stoppedOnKey = true
 			answered = text
+			noAnswer = false
 			return true
 		case keys.Backspace:
 			if len(text) > 0 {
@@ -72,7 +75,7 @@ func (a *App) ReadLine() (text string, aborted bool) {
 		// gracefully instead of re-asking the same question forever.
 		aborted = true
 	}
-	if a.answerSink != nil {
+	if a.answerSink != nil && !noAnswer {
 		*a.answerSink = &answered
 	}
 	return text, aborted
@@ -244,11 +247,12 @@ func (a *App) runKanaQuiz(scriptName string, data map[string]string, loadKnown f
 		fmt.Fprint(a.Out, "> ")
 
 		input, aborted := a.ReadLine()
-		if aborted && answered != nil && *answered == "" {
+		if aborted && answered != nil && *answered != "" {
 			// The line ended at the very moment the source ran dry (the
 			// terminating Enter was its last event): take over the finished
 			// answer, process it below, and end the quiz afterwards instead
-			// of looping forever on unanswered questions.
+			// of looping forever on unanswered questions. A bare Escape abort
+			// (*answered == "") stays an abort and shows the statistics.
 			input, aborted = *answered, false
 		}
 		if aborted || quiet() {
@@ -390,7 +394,9 @@ func (a *App) runReset(what, detail string, reset func() error) {
 	if err := reset(); err != nil {
 		fmt.Fprintf(a.Out, "Failed to reset progress: %v\n", err)
 	} else {
-		fmt.Fprintf(a.Out, "%s progress has been reset.\n", capitalize(what))
+		// Lower-case script name in the confirmation sentence ("hiragana
+		// progress has been reset.").
+		fmt.Fprintf(a.Out, "%s progress has been reset.\n", strings.ToLower(what))
 	}
 	fmt.Fprintln(a.Out, "\nPress Enter to return to the menu...")
 	a.waitForEnter()
