@@ -236,7 +236,11 @@
       } else {
         var acts = el("div", "phrase-actions");
         acts.appendChild(paBtn("Могу перевести", "check", "ok", function () { sendAction("answer", "know"); }));
-        acts.appendChild(paBtn("Показать перевод", "eye", "info", function () { sendAction("answer", "show"); }));
+        if (!quiz.translation) {
+          // Once the translation is revealed this button is hidden; the user
+          // decides about this same phrase and only then moves to the next one.
+          acts.appendChild(paBtn("Показать перевод", "eye", "info", function () { sendAction("answer", "show"); }));
+        }
         acts.appendChild(paBtn("Не могу перевести", "x", "warn", function () { sendAction("answer", "unknown"); }));
         acts.appendChild(paBtn("В главное меню", "home", "subtle", function () { sendAction("answer", "menu"); }));
         wrap.appendChild(acts);
