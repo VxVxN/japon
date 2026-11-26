@@ -12,6 +12,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"time"
 
 	"atomicgo.dev/keyboard/keys"
 
