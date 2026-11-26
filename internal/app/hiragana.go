@@ -35,15 +35,18 @@ func (a *App) printLearningHiraganaMenu() {
 func (a *App) ReadLine() (text string, aborted bool) {
 	stoppedOnKey := false
 	var answered string
+	noAnswer := true
 	_ = a.Listener.Listen(func(k keys.Key) bool {
 		switch k.Code {
 		case keys.Escape:
 			aborted = true
 			stoppedOnKey = true
+			noAnswer = false
 			return true
 		case keys.Enter:
 			stoppedOnKey = true
 			answered = text
+			noAnswer = false
 			return true
 		case keys.Backspace:
 			if len(text) > 0 {
@@ -72,7 +75,7 @@ func (a *App) ReadLine() (text string, aborted bool) {
 		// gracefully instead of re-asking the same question forever.
 		aborted = true
 	}
-	if a.answerSink != nil {
+	if a.answerSink != nil && !noAnswer {
 		*a.answerSink = &answered
 	}
 	return text, aborted
@@ -244,11 +247,12 @@ func (a *App) runKanaQuiz(scriptName string, data map[string]string, loadKnown f
 		fmt.Fprint(a.Out, "> ")
 
 		input, aborted := a.ReadLine()
-		if aborted && answered != nil && *answered == "" {
+		if aborted && answered != nil && *answered != "" {
 			// The line ended at the very moment the source ran dry (the
 			// terminating Enter was its last event): take over the finished
 			// answer, process it below, and end the quiz afterwards instead
-			// of looping forever on unanswered questions.
+			// of looping forever on unanswered questions. A bare Escape abort
+			// (*answered == "") stays an abort and shows the statistics.
 			input, aborted = *answered, false
 		}
 		if aborted || quiet() {
@@ -272,8 +276,10 @@ func (a *App) runKanaQuiz(scriptName string, data map[string]string, loadKnown f
 			}
 		}
 		if sourceSpent(a.Listener) {
-			// No further keys can arrive; stop after processing this answer.
-			return true
+			// No further keys can arrive; stop after processing this answer -
+			// unless every kana is known now, in which case the loops below
+			// finish normally and report the complete statistics.
+			return len(known) != len(data)
 		}
 		fmt.Fprintln(a.Out, "\nPress Enter to continue... (Esc shows statistics)")
 		return a.waitForEnter()
@@ -287,13 +293,20 @@ func (a *App) runKanaQuiz(scriptName string, data map[string]string, loadKnown f
 			a.showStatsScript(scriptName, data, known, unknown)
 			return
 		}
+		if sourceSpent(a.Listener) {
+			// The last answer was processed and no further keys can arrive;
+			// finish the quiz with the statistics (2/2 when everything was
+			// answered correctly on this pass).
+			a.showStatsScript(scriptName, data, known, unknown)
+			return
+		}
 		if quiet() {
 			a.showStatsScript(scriptName, data, known, unknown)
 			return
 		}
 	}
-	// Repeatedly re-ask everything that is still unknown. The quiet() guard
-	// makes the loop terminate when the key source runs dry (closed web
+	// Repeatedly re-ask everything that is still unknown. The spent/quiet
+	// guards make the loop terminate when the key source runs dry (closed web
 	// session or exhausted fake listener in tests).
 	for len(unknown) > 0 {
 		for _, k := range order {
@@ -304,7 +317,7 @@ func (a *App) runKanaQuiz(scriptName string, data map[string]string, loadKnown f
 				a.showStatsScript(scriptName, data, known, unknown)
 				return
 			}
-			if quiet() {
+			if sourceSpent(a.Listener) || quiet() {
 				a.showStatsScript(scriptName, data, known, unknown)
 				return
 			}
@@ -390,7 +403,9 @@ func (a *App) runReset(what, detail string, reset func() error) {
 	if err := reset(); err != nil {
 		fmt.Fprintf(a.Out, "Failed to reset progress: %v\n", err)
 	} else {
-		fmt.Fprintf(a.Out, "%s progress has been reset.\n", capitalize(what))
+		// Lower-case script name in the confirmation sentence ("hiragana
+		// progress has been reset.").
+		fmt.Fprintf(a.Out, "%s progress has been reset.\n", strings.ToLower(what))
 	}
 	fmt.Fprintln(a.Out, "\nPress Enter to return to the menu...")
 	a.waitForEnter()
