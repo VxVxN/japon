@@ -137,15 +137,15 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	session := NewSession(conn, s.hub)
 	go session.Serve()
 
-	// Pump keystrokes from the browser into the session until the socket
+	// Pump UI actions from the browser into the session until the socket
 	// dies or the session terminates.
 	for {
 		m, ok := conn.read()
 		if !ok {
 			break
 		}
-		if m.Type == "key" {
-			if !session.DeliverKey(m) {
+		if m.Type == "action" {
+			if !session.DeliverAction(m) {
 				break
 			}
 		}
