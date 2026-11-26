@@ -136,6 +136,12 @@ func (a *App) runKanaQuiz(scriptName string, data map[string]string, loadKnown f
 	// quiz does not simply follow the syllabary table.
 	order := shuffledStringMap(data)
 
+	// inputDone reports whether the last ReadLine consumed a real key event.
+	// When the key source runs dry (e.g. an exhausted fake listener in tests)
+	// it returns false, which lets the loops below terminate instead of
+	// spinning forever on unanswered questions.
+	inputDone := false
+
 	ask := func(k string) bool { // returns true if the caller should quit
 		a.Clean()
 		if unknown[k] {
@@ -148,6 +154,7 @@ func (a *App) runKanaQuiz(scriptName string, data map[string]string, loadKnown f
 		fmt.Fprint(a.Out, "> ")
 
 		input, aborted := a.ReadLine()
+		inputDone = !isQuiet(aborted)
 		if aborted {
 			return true
 		}
