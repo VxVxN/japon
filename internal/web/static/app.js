@@ -44,6 +44,71 @@
     return b;
   }
 
+  // ---------- japanese text-to-speech ----------
+
+  function isLang(v, prefix) {
+    return (v.lang || "").toLowerCase().indexOf(prefix) === 0;
+  }
+
+  function hasVoiceWith(prefix) {
+    if (!("speechSynthesis" in window)) return false;
+    var voices = window.speechSynthesis.getVoices() || [];
+    for (var i = 0; i < voices.length; i++) {
+      if (isLang(voices[i], prefix)) return true;
+    }
+    return false;
+  }
+
+  function pickJapaneseVoice() {
+    var voices = window.speechSynthesis.getVoices() || [];
+    for (var i = 0; i < voices.length; i++) {
+      // Prefer Google's Japanese voice when available (best quality).
+      if (isLang(voices[i], "ja") && /google/i.test(voices[i].name)) return voices[i];
+    }
+    for (var j = 0; j < voices.length; j++) {
+      if (isLang(voices[j], "ja")) return voices[j];
+    }
+    return null;
+  }
+
+  function speakJapanese(text) {
+    if (!text || !("speechSynthesis" in window)) return false;
+    if (!hasVoiceWith("ja")) {
+      // On Windows/Chrome, when only a Russian voice is installed the engine
+      // silently falls back to it and mangles the Japanese text. Refuse and
+      // let the UI show a hint instead of mispronouncing the phrase.
+      return !hasVoiceWith("ru");
+    }
+    try { window.speechSynthesis.cancel(); } catch (e) {}
+    var u = new SpeechSynthesisUtterance(String(text));
+    u.lang = "ja-JP";
+    u.rate = 0.9;
+    var ja = pickJapaneseVoice();
+    if (ja) u.voice = ja;
+    window.speechSynthesis.speak(u);
+    return true;
+  }
+
+  function showSpeakHint(node) {
+    node.classList.add("speak-warn");
+    if (node.titleAttrSet) return;
+    node.title = "В системе не установлен японский голос. Добавьте голос «Japanese» в настройках речи ОС.";
+    node.titleAttrSet = true;
+    setTimeout(function () { node.classList.remove("speak-warn"); }, 1200);
+  }
+
+  function speakBtn(text) {
+    var b = el("button", "speak-btn");
+    b.type = "button";
+    b.title = "Произнести фразу на японском языке";
+    b.appendChild(icon("volume"));
+    b.appendChild(el("span", null, "Озвучить фразу"));
+    b.addEventListener("click", function () {
+      if (!speakJapanese(text)) showSpeakHint(b);
+    });
+    return b;
+  }
+
   function setChip(cls, text) {
     status.className = "chip " + cls;
     status.querySelector(".chip-text").textContent = text;
@@ -129,12 +194,20 @@
       wrap.appendChild(hero);
     } else {
       wrap.appendChild(el("div", "phrase-card", quiz.prompt));
+      // Phrase screen: let the user hear the phrase pronounced in Japanese.
+      var speakRow = el("div", "speak-row");
+      speakRow.appendChild(speakBtn(quiz.prompt));
+      wrap.appendChild(speakRow);
     }
 
     if (quiz.translation) {
       var tr = el("div", "translation");
       tr.appendChild(el("b", null, quiz.kind === "kana" ? "Чтение: " : "Перевод: "));
       tr.appendChild(document.createTextNode(quiz.translation));
+      if (quiz.kind !== "kana") {
+        // Translation revealed — offer to hear the original phrase again.
+        tr.appendChild(speakBtn(quiz.prompt));
+      }
       wrap.appendChild(tr);
     }
 
