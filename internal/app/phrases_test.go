@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"testing"
 	"test/internal/data"
 	"test/internal/kbd"
+	"testing"
 
 	"atomicgo.dev/keyboard/keys"
 )

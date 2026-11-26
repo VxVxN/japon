@@ -1,11 +1,11 @@
 package app
 
 import (
-	"fmt"
 	"bytes"
+	"fmt"
 	"strings"
-	"testing"
 	"test/internal/kbd"
+	"testing"
 
 	"atomicgo.dev/keyboard/keys"
 )

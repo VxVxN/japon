@@ -2,9 +2,9 @@ package app
 
 import (
 	"strings"
-	"testing"
 	"test/internal/data"
 	"test/internal/kbd"
+	"testing"
 )
 
 // smallKanaData is a tiny katakana set so tests do not depend on the full
@@ -63,7 +63,7 @@ func TestRunLearningKatakanaWrongThenRepeated(t *testing.T) {
 func TestRunLearningKatakanaEmptyAnswer(t *testing.T) {
 	// Empty input counts as wrong ("didn't type anything").
 	seq := []interface{}{
-		kbd.EnterKey(), // empty answer for ア
+		kbd.EnterKey(),      // empty answer for ア
 		"a", kbd.EnterKey(), // retry correct
 		"i", kbd.EnterKey(), // イ correct
 	}

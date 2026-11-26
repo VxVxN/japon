@@ -105,9 +105,9 @@ type ProgressInfo struct {
 
 // action is one decoded browser action.
 type action struct {
-	kind  string
-	value string
-	bool_ bool
+	kind      string
+	value     string
+	confirmed bool // ActionConfirm payload
 }
 
 // decodeAction parses an incoming message; ok is false for malformed input.
@@ -125,7 +125,7 @@ func decodeAction(m wsMessage) (action, bool) {
 		if len(m.Raw) > 0 {
 			_ = json.Unmarshal(m.Raw, &b)
 		}
-		return action{kind: ActionConfirm, bool_: b}, true
+		return action{kind: ActionConfirm, confirmed: b}, true
 	}
 	return action{}, false
 }

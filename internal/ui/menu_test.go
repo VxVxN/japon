@@ -3,9 +3,9 @@ package ui
 import (
 	"bytes"
 	"strings"
-	"testing"
 	"test/internal/app"
 	"test/internal/kbd"
+	"testing"
 
 	"atomicgo.dev/keyboard/keys"
 )
@@ -110,13 +110,13 @@ func TestMenuKeyMappingMatchesPrintedMenu(t *testing.T) {
 	out := buf.String()
 
 	wants := map[string]string{
-		"1: Learning phrases":         app.DestPhrases,
-		"2: Learning hiragana":        app.DestHiragana,
-		"3: Learning katakana":        app.DestKatakana,
-		"4: Reset hiragana progress":  app.DestResetHiragana,
-		"5: Reset katakana progress":  app.DestResetKatakana,
-		"6: Reset phrases progress":   app.DestResetPhrases,
-		"0: Exit":                     app.DestQuit,
+		"1: Learning phrases":        app.DestPhrases,
+		"2: Learning hiragana":       app.DestHiragana,
+		"3: Learning katakana":       app.DestKatakana,
+		"4: Reset hiragana progress": app.DestResetHiragana,
+		"5: Reset katakana progress": app.DestResetKatakana,
+		"6: Reset phrases progress":  app.DestResetPhrases,
+		"0: Exit":                    app.DestQuit,
 	}
 	for line, dest := range wants {
 		if !strings.Contains(out, line) {
