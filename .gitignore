@@ -5,6 +5,7 @@
 *.dll
 *.so
 *.dylib
+japan
 
 # Test artifacts
 *.test
