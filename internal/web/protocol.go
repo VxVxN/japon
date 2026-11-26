@@ -36,15 +36,15 @@ const (
 // interaction round ends with a fresh state frame, so the client simply
 // renders whatever it receives.
 type State struct {
-	View     string         `json:"view"`
-	Title    string         `json:"title,omitempty"`
-	Subtitle string         `json:"subtitle,omitempty"`
-	Menu     []MenuItem     `json:"menu,omitempty"`
-	Quiz     *Quiz          `json:"quiz,omitempty"`
-	Stats    *Stats         `json:"stats,omitempty"`
-	Done     *DoneInfo      `json:"done,omitempty"`
-	Notice   *NoticeInfo    `json:"notice,omitempty"`
-	Progress *ProgressInfo  `json:"progress,omitempty"`
+	View     string        `json:"view"`
+	Title    string        `json:"title,omitempty"`
+	Subtitle string        `json:"subtitle,omitempty"`
+	Menu     []MenuItem    `json:"menu,omitempty"`
+	Quiz     *Quiz         `json:"quiz,omitempty"`
+	Stats    *Stats        `json:"stats,omitempty"`
+	Done     *DoneInfo     `json:"done,omitempty"`
+	Notice   *NoticeInfo   `json:"notice,omitempty"`
+	Progress *ProgressInfo `json:"progress,omitempty"`
 }
 
 // MenuItem is one card of the main menu.
@@ -62,7 +62,9 @@ type Quiz struct {
 	Translation string `json:"translation,omitempty"` // revealed on request / after answer
 	Input       bool   `json:"input"`                 // show the answer form
 	Hint        string `json:"hint,omitempty"`
-	Retry       bool   `json:"retry,omitempty"` // previously wrong / unknown
+	Retry       bool   `json:"retry,omitempty"`   // previously wrong / unknown
+	Correct     *bool  `json:"correct,omitempty"` // set on the kana feedback screen
+	Section     string `json:"section,omitempty"` // learning section id (for the reset button)
 }
 
 // StatItem is one "symbol — reading" row of a statistics group.

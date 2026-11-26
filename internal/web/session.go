@@ -112,12 +112,16 @@ type Session struct {
 	// Interaction state. All fields below are guarded by actMu and only
 	// touched from DeliverAction (the websocket read-loop goroutine).
 	actMu        sync.Mutex
-	awaiting     string // "" | "answer" | "confirm"
+	awaiting     string // "" | "answer" | "feedback" | "confirm"
 	prompt       string // current question prompt (kana symbol / phrase key)
+	pendingRetry bool   // the pending re-ask is a retry of a previously wrong kana
 	pendingReset *resetTarget
 
 	hiraScr, kataScr scriptSpec
 	phraseTable      map[string]string
+	// retryPool tracks the kana answered incorrectly during the current quiz
+	// run; they are asked again before new ones (see askNextKana).
+	retryPool map[string]bool
 }
 
 // NewSession wires an app.App around the given connection. It is separated
@@ -155,6 +159,7 @@ func NewSession(c conn, h *hub) *Session {
 		knownField: func(p *app.ProgressData) *[]string { return &p.KnownKatakana },
 	}
 	s.phraseTable = data.AllPhrases()
+	s.retryPool = map[string]bool{}
 
 	if h != nil {
 		h.register(s)
@@ -269,10 +274,26 @@ func (s *Session) menuState() *State {
 	}
 }
 
+// sectionResetDest maps a learning section to its per-section reset
+// destination, used for the quick "reset progress" button on the quiz
+// screen. Returns "" for unknown sections.
+func sectionResetDest(section string) string {
+	switch section {
+	case "hiragana":
+		return app.DestResetHiragana
+	case "katakana":
+		return app.DestResetKatakana
+	case "phrases":
+		return app.DestResetPhrases
+	}
+	return ""
+}
+
 // stopQuiz clears any pending interaction state before switching views.
 func (s *Session) stopQuiz() {
 	s.awaiting = ""
 	s.prompt = ""
+	s.pendingRetry = false
 	s.pendingReset = nil
 }
 
@@ -348,6 +369,7 @@ func knownIntersection(known map[string]bool, table map[string]string) int {
 func (s *Session) startKanaQuiz(sc *scriptSpec) bool {
 	p := s.app.LoadProgress()
 	known := s.knownSet(sc.table, *sc.knownField(&p))
+	s.retryPool = map[string]bool{}
 	if len(known) >= len(sc.table) {
 		s.stopQuiz()
 		return s.sendState(&State{
@@ -356,16 +378,29 @@ func (s *Session) startKanaQuiz(sc *scriptSpec) bool {
 			Done:  &DoneInfo{Message: fmt.Sprintf("Вы знаете все %d знаков. Сбросьте прогресс, чтобы пройти ещё раз.", len(sc.table))},
 		})
 	}
-	return s.askNextKana(sc, known)
+	return s.askNextKana(sc, known, false)
 }
 
 // askNextKana picks a random unknown kana, stores it as the pending prompt
-// and renders the quiz card.
-func (s *Session) askNextKana(sc *scriptSpec, known map[string]bool) bool {
+// and renders the quiz card. When retry is true the pool is restricted to
+// the kana that were answered incorrectly earlier in this session (the
+// console-flow behaviour: difficult signs come back until they are known).
+func (s *Session) askNextKana(sc *scriptSpec, known map[string]bool, retry bool) bool {
 	pool := make([]string, 0, len(sc.table))
 	for k := range sc.table {
 		if !known[k] {
 			pool = append(pool, k)
+		}
+	}
+	if retry && len(s.retryPool) > 0 {
+		filtered := make([]string, 0, len(s.retryPool))
+		for _, k := range s.retryPool {
+			if !known[k] {
+				filtered = append(filtered, k)
+			}
+		}
+		if len(filtered) > 0 {
+			pool = filtered
 		}
 	}
 	if len(pool) == 0 {
@@ -380,15 +415,39 @@ func (s *Session) askNextKana(sc *scriptSpec, known map[string]bool) bool {
 		View:  ViewQuiz,
 		Title: sc.title,
 		Quiz: &Quiz{
-			Kind:   "kana",
-			Prompt: k,
-			Input:  true,
-			Hint:   fmt.Sprintf("Уже выучено: %d из %d", knownIntersection(known, sc.table), len(sc.table)),
+			Kind:    "kana",
+			Prompt:  k,
+			Input:   true,
+			Retry:   retry,
+			Section: sc.name,
+			Hint:    fmt.Sprintf("Уже выучено: %d из %d", knownIntersection(known, sc.table), len(sc.table)),
 		},
 	})
 }
 
 func (s *Session) handleAnswer(value string) bool {
+	// The client acknowledged a feedback screen: show the next question.
+	if s.awaiting == "feedback" {
+		if s.prompt == "" {
+			return s.handleSelect(app.DestMainMenu)
+		}
+		sc := &s.hiraScr
+		if _, ok := sc.table[s.prompt]; !ok {
+			sc = &s.kataScr
+		}
+		if _, ok := sc.table[s.prompt]; !ok {
+			return s.handleSelect(app.DestMainMenu)
+		}
+		p := s.app.LoadProgress()
+		known := s.knownSet(sc.table, *sc.knownField(&p))
+		retry := s.pendingRetry
+		s.pendingRetry = false
+		if knownIntersection(known, sc.table) >= len(sc.table) {
+			return s.showKanaStats(sc, known)
+		}
+		return s.askNextKana(sc, known, retry)
+	}
+
 	if s.awaiting != "answer" || s.prompt == "" {
 		return true // stale answer: ignore
 	}
@@ -414,27 +473,47 @@ func (s *Session) handleAnswer(value string) bool {
 	var feedback *State
 	if correct {
 		known[s.prompt] = true
+		delete(s.retryPool, s.prompt)
 		*sc.knownField(&p) = sortedKeyList(known)
 		if err := s.app.SaveProgress(p); err != nil {
 			fmt.Printf("web: save progress: %v\n", err)
 		}
 		feedback = &State{View: ViewQuiz, Title: sc.title, Quiz: &Quiz{
 			Kind: "kana", Prompt: s.prompt, Translation: sc.table[s.prompt],
-			Hint: "Верно! Отлично!", Input: false,
+			Hint: "Верно! Отлично!", Input: false, Correct: &truthy, Section: sc.name,
 		}}
-	} else {
-		feedback = &State{View: ViewQuiz, Title: sc.title, Quiz: &Quiz{
-			Kind: "kana", Prompt: s.prompt, Translation: sc.table[s.prompt],
-			Hint: wrongAnswerHint(answer), Input: false, Retry: true,
-		}}
+		// Pause on the feedback screen so the user sees the result; the client
+		// sends another "answer" action to continue.
+		s.awaiting = "feedback"
+		s.pendingRetry = false
+		return s.sendState(feedback)
 	}
-	s.sendState(feedback)
 
-	if correct && knownIntersection(known, sc.table) >= len(sc.table) {
-		return s.showKanaStats(sc, known)
+	if strings.TrimSpace(answer) != "" {
+		s.retryPool[s.prompt] = true
 	}
-	return s.askNextKana(sc, known)
+	feedback = &State{View: ViewQuiz, Title: sc.title, Quiz: &Quiz{
+		Kind: "kana", Prompt: s.prompt, Translation: sc.table[s.prompt],
+		Hint: wrongAnswerHint(answer), Input: false, Correct: &falsy, Section: sc.name,
+	}}
+	// Pause on the feedback screen so the user sees the correct reading; the
+	// client sends another "answer" action to continue.
+	s.awaiting = "feedback"
+	s.pendingRetry = true
+	return s.sendState(feedback)
 }
+
+// truthy/falsy are helpers for the optional *bool field of Quiz.
+var (
+	truthy = true
+	falsy  = false
+)
+
+// truthy/falsy are helpers for the optional *bool field of Quiz.
+var (
+	truthy = true
+	falsy  = false
+)
 
 func wrongAnswerHint(answer string) string {
 	if strings.TrimSpace(answer) == "" {
@@ -509,10 +588,11 @@ func (s *Session) askNextPhrase(retry map[string]bool) bool {
 		View:  ViewQuiz,
 		Title: "Фразы",
 		Quiz: &Quiz{
-			Kind:   "phrase",
-			Prompt: k,
-			Hint:   fmt.Sprintf("Уже выучено: %d из %d", knownIntersection(known, s.phraseTable), len(s.phraseTable)),
-			Retry:  retry[k],
+			Kind:    "phrase",
+			Prompt:  k,
+			Section: "phrases",
+			Hint:    fmt.Sprintf("Уже выучено: %d из %d", knownIntersection(known, s.phraseTable), len(s.phraseTable)),
+			Retry:   retry[k],
 		},
 	})
 }
@@ -529,7 +609,7 @@ func (s *Session) handlePhraseChoice(key, choice string) bool {
 	switch choice {
 	case "show":
 		return s.sendState(&State{View: ViewQuiz, Title: "Фразы", Quiz: &Quiz{
-			Kind: "phrase", Prompt: key, Translation: value,
+			Kind: "phrase", Prompt: key, Translation: value, Section: "phrases",
 		}})
 	case "menu":
 		s.stopQuiz()
@@ -586,6 +666,7 @@ func (s *Session) handleConfirm(yes bool) bool {
 			return s.sendState(&State{View: ViewNotice, Title: "Ошибка",
 				Notice: &NoticeInfo{Message: fmt.Sprintf("Не удалось сбросить прогресс: %v", err)}})
 		}
+		s.retryPool = map[string]bool{}
 	}
 	return s.sendState(s.menuState())
 }
