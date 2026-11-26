@@ -40,8 +40,15 @@ func NewFake(k ...keys.Key) *Fake {
 }
 
 // Listen feeds the predefined keys to the handler until it stops or the
-// sequence runs out.
+// sequence runs out. Once the sequence is exhausted, every subsequent call
+// returns immediately (after setting Exhausted) instead of spinning forever;
+// interactive flows must treat this like the real terminal going quiet and
+// finish their current interaction.
 func (f *Fake) Listen(h Handler) error {
+	if len(f.Keys) == 0 {
+		f.Exhausted = true
+		return nil
+	}
 	for len(f.Keys) > 0 {
 		k := f.Keys[0]
 		f.Keys = f.Keys[1:]
