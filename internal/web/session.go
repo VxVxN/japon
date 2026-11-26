@@ -388,7 +388,7 @@ func (s *Session) askNextKana(sc *scriptSpec, known map[string]bool, retry bool)
 	}
 	if retry && len(s.retryPool) > 0 {
 		filtered := make([]string, 0, len(s.retryPool))
-		for _, k := range s.retryPool {
+		for k := range s.retryPool {
 			if !known[k] {
 				filtered = append(filtered, k)
 			}
