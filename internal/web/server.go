@@ -100,6 +100,11 @@ func NewServer() *Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleIndex)
 	mux.Handle("/static/", StaticHandler("/static/"))
+	// Some browsers request /favicon.ico by default even when the page
+	// declares an SVG icon; answer with the embedded favicon.
+	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFileFS(w, r, Static(), "favicon.svg")
+	})
 	mux.HandleFunc("/ws", s.handleWS)
 	s.Mux = mux
 	return s
