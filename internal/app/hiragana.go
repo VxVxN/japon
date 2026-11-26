@@ -414,10 +414,10 @@ func (a *App) runReset(what, detail string, reset func() error) {
 
 // capitalize upper-cases the first rune of s.
 func capitalize(s string) string {
-if s == "" {
-return s
-}
-r := []rune(s)
-r[0] = unicode.ToUpper(r[0])
-return string(r)
+	if s == "" {
+		return s
+	}
+	r := []rune(s)
+	r[0] = unicode.ToUpper(r[0])
+	return string(r)
 }

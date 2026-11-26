@@ -37,15 +37,15 @@ type App struct {
 // the caller (see cmd/japan/main.go) to dispatch named destinations.
 func New() *App {
 	return &App{
-		Out:                os.Stdout,
-		Listener:           kbd.Real{},
-		Clean:              CleanDisplay,
-		Exit:               os.Exit,
-		LoadProgress:       LoadProgress,
-		SaveProgress:       SaveProgress,
-		ResetProgress:      ResetProgress,
-		ResetHiragana:      ResetHiraganaProgress,
-		ResetKatakana:      ResetKatakanaProgress,
+		Out:                  os.Stdout,
+		Listener:             kbd.Real{},
+		Clean:                CleanDisplay,
+		Exit:                 os.Exit,
+		LoadProgress:         LoadProgress,
+		SaveProgress:         SaveProgress,
+		ResetProgress:        ResetProgress,
+		ResetHiragana:        ResetHiraganaProgress,
+		ResetKatakana:        ResetKatakanaProgress,
 		ResetPhrasesProgress: ResetPhrasesProgress,
 	}
 }
@@ -57,16 +57,17 @@ func CleanDisplay() {
 
 // Navigation destination names used by the menus.
 const (
-	DestMainMenu       = "main"
-	DestPhrases        = "phrases"
-	DestHiragana       = "hiragana"
-	DestKatakana       = "katakana"
-	DestReset          = "reset"
-	DestResetHiragana  = "reset-hiragana"
-	DestResetKatakana  = "reset-katakana"
-	DestResetPhrases   = "reset-phrases"
-	DestQuit           = "quit"
-	DestUnchanged      = ""
+	DestMainMenu      = "main"
+	DestPhrases       = "phrases"
+	DestHiragana      = "hiragana"
+	DestKatakana      = "katakana"
+	DestResetHiragana = "reset-hiragana"
+	DestResetKatakana = "reset-katakana"
+	DestResetPhrases  = "reset-phrases"
+	DestQuit          = "quit"
+
+	// DestUnchanged means the key press did not map to any destination.
+	DestUnchanged = ""
 )
 
 // ClassifyMenuKey maps a main-menu key press to a navigation destination,
@@ -94,11 +95,9 @@ func ClassifyMenuKey(k keys.Key) string {
 		return DestResetKatakana
 	case "6":
 		return DestResetPhrases
-	}
-	if len(s) != 1 || s[0] < '0' || s[0] > '9' {
+	default:
 		return DestUnchanged
 	}
-	return DestUnchanged
 }
 
 // FormatStats renders the hiragana learning statistics for the given state.

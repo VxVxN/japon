@@ -11,6 +11,7 @@ package web
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"math/rand"
 	"sort"
 	"strings"
@@ -112,7 +113,7 @@ type Session struct {
 	// Interaction state. All fields below are guarded by actMu and only
 	// touched from DeliverAction (the websocket read-loop goroutine).
 	actMu        sync.Mutex
-	awaiting     string // "" | "answer" | "feedback" | "confirm"
+	awaiting     string // one of awaitNone / awaitAnswer / awaitFeedback / awaitConfirm
 	prompt       string // current question prompt (kana symbol / phrase key)
 	pendingRetry bool   // the pending re-ask is a retry of a previously wrong kana
 	pendingReset *resetTarget
@@ -222,7 +223,7 @@ func (s *Session) DeliverAction(m wsMessage) bool {
 	case ActionAnswer:
 		return s.handleAnswer(a.value)
 	case ActionConfirm:
-		return s.handleConfirm(a.bool_)
+		return s.handleConfirm(a.confirmed)
 	}
 	return true
 }
@@ -274,24 +275,17 @@ func (s *Session) menuState() *State {
 	}
 }
 
-// sectionResetDest maps a learning section to its per-section reset
-// destination, used for the quick "reset progress" button on the quiz
-// screen. Returns "" for unknown sections.
-func sectionResetDest(section string) string {
-	switch section {
-	case "hiragana":
-		return app.DestResetHiragana
-	case "katakana":
-		return app.DestResetKatakana
-	case "phrases":
-		return app.DestResetPhrases
-	}
-	return ""
-}
+// Awaiting states of the session interaction state machine.
+const (
+	awaitNone     = ""         // idle: no pending interaction
+	awaitAnswer   = "answer"   // waiting for a quiz answer
+	awaitFeedback = "feedback" // showing the answer result, waiting for continue
+	awaitConfirm  = "confirm"  // waiting for a yes/no confirmation
+)
 
 // stopQuiz clears any pending interaction state before switching views.
 func (s *Session) stopQuiz() {
-	s.awaiting = ""
+	s.awaiting = awaitNone
 	s.prompt = ""
 	s.pendingRetry = false
 	s.pendingReset = nil
@@ -410,7 +404,7 @@ func (s *Session) askNextKana(sc *scriptSpec, known map[string]bool, retry bool)
 	k := pool[0]
 
 	s.prompt = k
-	s.awaiting = "answer"
+	s.awaiting = awaitAnswer
 	return s.sendState(&State{
 		View:  ViewQuiz,
 		Title: sc.title,
@@ -427,7 +421,7 @@ func (s *Session) askNextKana(sc *scriptSpec, known map[string]bool, retry bool)
 
 func (s *Session) handleAnswer(value string) bool {
 	// The client acknowledged a feedback screen: show the next question.
-	if s.awaiting == "feedback" {
+	if s.awaiting == awaitFeedback {
 		if s.prompt == "" {
 			return s.handleSelect(app.DestMainMenu)
 		}
@@ -448,7 +442,7 @@ func (s *Session) handleAnswer(value string) bool {
 		return s.askNextKana(sc, known, retry)
 	}
 
-	if s.awaiting != "answer" || s.prompt == "" {
+	if s.awaiting != awaitAnswer || s.prompt == "" {
 		return true // stale answer: ignore
 	}
 
@@ -476,15 +470,15 @@ func (s *Session) handleAnswer(value string) bool {
 		delete(s.retryPool, s.prompt)
 		*sc.knownField(&p) = sortedKeyList(known)
 		if err := s.app.SaveProgress(p); err != nil {
-			fmt.Printf("web: save progress: %v\n", err)
+			log.Printf("web: save progress: %v", err)
 		}
 		feedback = &State{View: ViewQuiz, Title: sc.title, Quiz: &Quiz{
 			Kind: "kana", Prompt: s.prompt, Translation: sc.table[s.prompt],
-			Hint: "Верно! Отлично!", Input: false, Correct: &truthy, Section: sc.name,
+			Hint: "Верно! Отлично!", Input: false, Correct: ptr(true), Section: sc.name,
 		}}
 		// Pause on the feedback screen so the user sees the result; the client
 		// sends another "answer" action to continue.
-		s.awaiting = "feedback"
+		s.awaiting = awaitFeedback
 		s.pendingRetry = false
 		return s.sendState(feedback)
 	}
@@ -494,26 +488,17 @@ func (s *Session) handleAnswer(value string) bool {
 	}
 	feedback = &State{View: ViewQuiz, Title: sc.title, Quiz: &Quiz{
 		Kind: "kana", Prompt: s.prompt, Translation: sc.table[s.prompt],
-		Hint: wrongAnswerHint(answer), Input: false, Correct: &falsy, Section: sc.name,
+		Hint: wrongAnswerHint(answer), Input: false, Correct: ptr(false), Section: sc.name,
 	}}
 	// Pause on the feedback screen so the user sees the correct reading; the
 	// client sends another "answer" action to continue.
-	s.awaiting = "feedback"
+	s.awaiting = awaitFeedback
 	s.pendingRetry = true
 	return s.sendState(feedback)
 }
 
-// truthy/falsy are helpers for the optional *bool field of Quiz.
-var (
-	truthy = true
-	falsy  = false
-)
-
-// truthy/falsy are helpers for the optional *bool field of Quiz.
-var (
-	truthy = true
-	falsy  = false
-)
+// ptr returns a pointer to b, used for the optional *bool field of Quiz.
+func ptr(b bool) *bool { return &b }
 
 func wrongAnswerHint(answer string) string {
 	if strings.TrimSpace(answer) == "" {
@@ -583,7 +568,7 @@ func (s *Session) askNextPhrase(retry map[string]bool) bool {
 	k := pool[0]
 
 	s.prompt = phrasePromptPrefix + k
-	s.awaiting = "answer"
+	s.awaiting = awaitAnswer
 	return s.sendState(&State{
 		View:  ViewQuiz,
 		Title: "Фразы",
@@ -622,7 +607,7 @@ func (s *Session) handlePhraseChoice(key, choice string) bool {
 			known[key] = true
 			p.KnownPhrases = sortedKeyList(known)
 			if err := s.app.SaveProgress(p); err != nil {
-				fmt.Printf("web: save progress: %v\n", err)
+				log.Printf("web: save progress: %v", err)
 			}
 		} else {
 			retry[key] = true
@@ -644,7 +629,7 @@ func (s *Session) startReset(label, detail string, sc *scriptSpec) bool {
 		t.field = func(p *app.ProgressData) *[]string { return &p.KnownPhrases }
 	}
 	s.pendingReset = t
-	s.awaiting = "confirm"
+	s.awaiting = awaitConfirm
 	return s.sendState(&State{
 		View:   ViewNotice,
 		Title:  "Сброс прогресса",
@@ -653,7 +638,7 @@ func (s *Session) startReset(label, detail string, sc *scriptSpec) bool {
 }
 
 func (s *Session) handleConfirm(yes bool) bool {
-	if s.awaiting != "confirm" || s.pendingReset == nil {
+	if s.awaiting != awaitConfirm || s.pendingReset == nil {
 		return true
 	}
 	t := s.pendingReset
@@ -670,8 +655,3 @@ func (s *Session) handleConfirm(yes bool) bool {
 	}
 	return s.sendState(s.menuState())
 }
-
-var (
-	_ = strings.TrimSpace
-	_ = sort.Strings
-)

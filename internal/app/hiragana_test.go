@@ -2,8 +2,8 @@ package app
 
 import (
 	"strings"
-	"testing"
 	"test/internal/kbd"
+	"testing"
 )
 
 // smallData is a tiny kana set so tests do not depend on the full syllabary.
@@ -104,7 +104,7 @@ func TestRunLearningHiraganaWrongThenRepeated(t *testing.T) {
 func TestRunLearningHiraganaEmptyAnswer(t *testing.T) {
 	// Empty input counts as wrong ("didn't type anything").
 	seq := []interface{}{
-		kbd.EnterKey(), // empty answer for あ
+		kbd.EnterKey(),      // empty answer for あ
 		"a", kbd.EnterKey(), // retry correct
 		"i", kbd.EnterKey(), // い correct
 	}
