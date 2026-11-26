@@ -205,8 +205,9 @@ func (a *App) runKanaQuiz(scriptName string, data map[string]string, loadKnown f
 	}
 
 	// Ask each kana once per pass; wrong answers are collected into unknown and
-	// re-asked after the initial pass completes. The order is randomized so the
-	// quiz does not simply follow the syllabary table.
+	// re-asked only after every other kana of the current pass was asked, so a
+	// just-missed kana never comes back immediately. The order is randomized so
+	// the quiz does not simply follow the syllabary table.
 	order := shuffledStringMap(data)
 
 	// quiet reports whether the key source ran dry (e.g. an exhausted fake
@@ -305,11 +306,22 @@ func (a *App) runKanaQuiz(scriptName string, data map[string]string, loadKnown f
 			return
 		}
 	}
-	// Repeatedly re-ask everything that is still unknown. The spent/quiet
-	// guards make the loop terminate when the key source runs dry (closed web
-	// session or exhausted fake listener in tests).
+	// Repeatedly re-ask everything that is still unknown. The kana missed on
+	// the previous pass are shuffled again before being asked, so a just-missed
+	// kana never shows up as the very next question - it comes back only after
+	// at least one other pending kana was asked (or, when it is the only one
+	// left, after the whole remaining queue has been cycled through once). The
+	// spent/quiet guards make the loop terminate when the key source runs dry
+	// (closed web session or exhausted fake listener in tests).
 	for len(unknown) > 0 {
+		pending := make([]string, 0, len(unknown))
 		for _, k := range order {
+			if !known[k] && unknown[k] {
+				pending = append(pending, k)
+			}
+		}
+		rand.Shuffle(len(pending), func(i, j int) { pending[i], pending[j] = pending[j], pending[i] })
+		for _, k := range pending {
 			if known[k] {
 				continue
 			}

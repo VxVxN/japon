@@ -75,11 +75,14 @@ func (f *Fake) Listen(h Handler) error {
 	return nil
 }
 
-// IsExhausted reports whether a previous Listen call consumed the whole key
-// sequence without the handler stopping on its own. Flows use it together
-// with HasPendingKeys to distinguish "the user answered" from "the key
-// source ran dry".
-func (f *Fake) IsExhausted() bool { return f.Exhausted }
+// IsExhausted reports whether the most recent Listen call ended because the
+// key sequence ran out mid-interaction, i.e. the interaction never received
+// its terminating key. A read that stopped on a real Enter/Escape leaves this
+// false even when that key happened to be the last event of the sequence -
+// exactly like the real terminal, which keeps delivering keys after an answer.
+// Flows use it together with HasPendingKeys to distinguish "the user answered"
+// from "the key source ran dry".
+func (f *Fake) IsExhausted() bool { return f.DrainedMidRead }
 
 // HasPendingKeys reports whether the fake can still deliver at least one key
 // event to the next Listen call. Once the queue is empty the source is spent
