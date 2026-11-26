@@ -536,9 +536,13 @@ func (s *Session) showKanaStats(sc *scriptSpec, known map[string]bool) bool {
 
 const phrasePromptPrefix = "phrase:"
 
-func (s *Session) startPhrases() bool { return s.askNextPhrase(nil) }
+func (s *Session) startPhrases() bool { return s.askNextPhrase(nil, "") }
 
-func (s *Session) askNextPhrase(retry map[string]bool) bool {
+// askNextPhrase picks the next phrase to show. exclude is the phrase the user
+// just decided about ("unknown"); it must never come back immediately — the
+// rotation has to move on to a different phrase (falling back to exclude only
+// when it is the last unknown one left).
+func (s *Session) askNextPhrase(retry map[string]bool, exclude string) bool {
 	p := s.app.LoadProgress()
 	known := s.knownSet(s.phraseTable, p.KnownPhrases)
 	if len(known) >= len(s.phraseTable) {
@@ -563,6 +567,19 @@ func (s *Session) askNextPhrase(retry map[string]bool) bool {
 	pool := queue
 	if len(retryLeft) > 0 {
 		pool = retryLeft
+	}
+	// Never re-show the phrase the user just marked as unknown: pick another
+	// one from the pool so the rotation visibly moves forward.
+	if exclude != "" && len(pool) > 1 {
+		filtered := make([]string, 0, len(pool))
+		for _, k := range pool {
+			if k != exclude {
+				filtered = append(filtered, k)
+			}
+		}
+		if len(filtered) > 0 {
+			pool = filtered
+		}
 	}
 	rand.Shuffle(len(pool), func(i, j int) { pool[i], pool[j] = pool[j], pool[i] })
 	k := pool[0]
@@ -625,7 +642,7 @@ func (s *Session) handlePhraseChoice(key, choice string) bool {
 			retry[key] = true
 		}
 		s.stopQuiz()
-		return s.askNextPhrase(retry)
+		return s.askNextPhrase(retry, key)
 	}
 	return true
 }
