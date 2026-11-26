@@ -63,3 +63,30 @@ func TestPhraseShowKeepsButtonsAndMovesOnNext(t *testing.T) {
 		t.Fatalf("next phrase state wrong: %+v", q2)
 	}
 }
+
+// TestPhraseUnknownShowsDifferentPhrase guards the reported bug: pressing
+// "Не могу перевести" must never leave the very same phrase on screen — the
+// rotation has to advance to a different one.
+func TestPhraseUnknownShowsDifferentPhrase(t *testing.T) {
+	f := &fakeConn{}
+	s := NewSession(f, nil)
+
+	if !s.handleSelect(app.DestPhrases) {
+		t.Fatal("start phrases failed")
+	}
+	first := lastQuiz(t, f).Prompt
+
+	if !s.handleAnswer("unknown") {
+		t.Fatal("unknown action failed")
+	}
+	q := lastQuiz(t, f)
+	if q.Kind != "phrase" {
+		t.Fatalf("expected phrase quiz, got %+v", q)
+	}
+	if q.Prompt == first {
+		t.Fatalf("same phrase shown after \"unknown\": %q", first)
+	}
+	if !q.Input {
+		t.Fatal("action buttons missing on the next phrase")
+	}
+}
