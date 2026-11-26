@@ -8,6 +8,7 @@ import (
 	"unicode"
 
 	"atomicgo.dev/keyboard/keys"
+	"test/internal/kbd"
 )
 
 // printLearningKanaMenu prints the help text of the kana exercise. It is
@@ -136,11 +137,25 @@ func (a *App) runKanaQuiz(scriptName string, data map[string]string, loadKnown f
 	// quiz does not simply follow the syllabary table.
 	order := shuffledStringMap(data)
 
-	// inputDone reports whether the last ReadLine consumed a real key event.
-	// When the key source runs dry (e.g. an exhausted fake listener in tests)
-	// it returns false, which lets the loops below terminate instead of
-	// spinning forever on unanswered questions.
-	inputDone := false
+	// quiet reports whether the key source ran dry (e.g. an exhausted fake
+	// listener in tests or a closed web session). When it is true the flows
+	// terminate instead of spinning forever on unanswered questions. Note:
+	// Fake.Exhausted only means "the sequence was consumed", not that the
+	// current interaction received an answer, so ReadLine must have actually
+	// returned from a key event for the source to count as quiet.
+	keySeen := false
+	inner := a.Listener
+	a.Listener = kbd.Watch(inner, &keySeen)
+	defer func() { a.Listener = inner }()
+	quiet := func() bool {
+		if !keySeen {
+			return false
+		}
+		if q, ok := inner.(interface{ IsExhausted() bool }); ok {
+			return q.IsExhausted()
+		}
+		return false
+	}
 
 	ask := func(k string) bool { // returns true if the caller should quit
 		a.Clean()
@@ -154,8 +169,7 @@ func (a *App) runKanaQuiz(scriptName string, data map[string]string, loadKnown f
 		fmt.Fprint(a.Out, "> ")
 
 		input, aborted := a.ReadLine()
-		inputDone = !isQuiet(aborted)
-		if aborted {
+		if aborted || quiet() {
 			return true
 		}
 
@@ -187,14 +201,24 @@ func (a *App) runKanaQuiz(scriptName string, data map[string]string, loadKnown f
 			a.showStatsScript(scriptName, data, known, unknown)
 			return
 		}
+		if quiet() {
+			a.showStatsScript(scriptName, data, known, unknown)
+			return
+		}
 	}
-	// Repeatedly re-ask everything that is still unknown.
+	// Repeatedly re-ask everything that is still unknown. The quiet() guard
+	// makes the loop terminate when the key source runs dry (closed web
+	// session or exhausted fake listener in tests).
 	for len(unknown) > 0 {
 		for _, k := range order {
 			if known[k] {
 				continue
 			}
 			if ask(k) {
+				a.showStatsScript(scriptName, data, known, unknown)
+				return
+			}
+			if quiet() {
 				a.showStatsScript(scriptName, data, known, unknown)
 				return
 			}

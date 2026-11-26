@@ -61,6 +61,36 @@ func (f *Fake) Listen(h Handler) error {
 	return nil
 }
 
+// Watch wraps the given Listener and sets *seen to true whenever a key event
+// actually reaches the handler. Flows use it together with the optional
+// IsExhausted method to distinguish "the user answered" from "the key source
+// ran dry", which would otherwise cause infinite loops when no further keys
+// can arrive (exhausted fake in tests, closed web session).
+func Watch(l Listener, seen *bool) Listener {
+	return &watcher{inner: l, seen: seen}
+}
+
+type watcher struct {
+	inner Listener
+	seen  *bool
+}
+
+func (w *watcher) Listen(h Handler) error {
+	return w.inner.Listen(func(k keys.Key) bool {
+		if w.seen != nil {
+			*w.seen = true
+		}
+		return h(k)
+	})
+}
+
+func (w *watcher) IsExhausted() bool {
+	if q, ok := w.inner.(interface{ IsExhausted() bool }); ok {
+		return q.IsExhausted()
+	}
+	return false
+}
+
 // RuneKey builds a key event for a typed character exactly like the real
 // keyboard listener does (KeyCode == keys.RuneKey plus the produced rune).
 func RuneKey(r rune) keys.Key {
