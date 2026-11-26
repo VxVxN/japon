@@ -10,10 +10,16 @@ import (
 	"atomicgo.dev/keyboard/keys"
 )
 
-// printLearningHiraganaMenu prints the help text of the hiragana exercise.
-func (a *App) printLearningHiraganaMenu() {
+// printLearningKanaMenu prints the help text of the kana exercise. It is
+// shared by the hiragana and katakana flows.
+func (a *App) printLearningKanaMenu() {
 	fmt.Fprintln(a.Out, "Type the reading in English letters and press Enter to check.")
 	fmt.Fprintln(a.Out, "Press Ctrl+C or Esc to exit and see your statistics.")
+}
+
+// printLearningHiraganaMenu prints the help text of the hiragana exercise.
+func (a *App) printLearningHiraganaMenu() {
+	a.printLearningKanaMenu()
 }
 
 // ReadLine collects typed characters until Enter is pressed. Backspace removes
@@ -63,13 +69,19 @@ func sortedKeys(m map[string]bool) []string {
 
 // showStats prints the final statistics and exits the program.
 func (a *App) showStats(data map[string]string, known, unknown map[string]bool) {
+	a.showStatsScript("hiragana", data, known, unknown)
+}
+
+// showStatsScript is like showStats but lets the caller choose the wording of
+// the "Known ..." section header ("hiragana" or "katakana").
+func (a *App) showStatsScript(scriptName string, data map[string]string, known, unknown map[string]bool) {
 	rest := make(map[string]bool)
 	for k := range data {
 		if !known[k] && !unknown[k] {
 			rest[k] = true
 		}
 	}
-	fmt.Fprint(a.Out, FormatStats(data, sortedKeys(known), sortedKeys(unknown), sortedKeys(rest)))
+	fmt.Fprint(a.Out, FormatStatsScript(scriptName, data, sortedKeys(known), sortedKeys(unknown), sortedKeys(rest)))
 	a.Exit(0)
 }
 
@@ -92,19 +104,31 @@ func shuffledStringMap(m map[string]string) []string {
 // (loaded via LoadProgress) are skipped, and every newly known kana is saved
 // back to the progress file as soon as it is answered correctly.
 func (a *App) RunLearningHiragana(data map[string]string) {
+	a.runKanaQuiz("hiragana", data,
+		func() []string { return a.LoadProgress().KnownHiragana },
+		func(list []string) error {
+			return a.SaveProgress(ProgressData{KnownHiragana: list})
+		})
+}
+
+// runKanaQuiz is the shared quiz engine behind the hiragana and katakana
+// flows. scriptName is used for wording ("hiragana"/"katakana"), loadKnown
+// restores previously learned kana keys and save persists the current set of
+// known kana after every correct answer.
+func (a *App) runKanaQuiz(scriptName string, data map[string]string, loadKnown func() []string, save func(list []string) error) {
 	known := map[string]bool{}
 	unknown := map[string]bool{}
 
 	// Restore previously learned kana so they are not asked again. Only keys
 	// that exist in the current data set are trusted.
-	for _, k := range a.LoadProgress().KnownHiragana {
+	for _, k := range loadKnown() {
 		if _, ok := data[k]; ok {
 			known[k] = true
 		}
 	}
 
-	save := func() {
-		_ = a.SaveProgress(ProgressData{KnownHiragana: sortedKeys(known)})
+	persist := func() {
+		_ = save(sortedKeys(known))
 	}
 
 	// Ask each kana once per pass; wrong answers are collected into unknown and
@@ -120,7 +144,7 @@ func (a *App) RunLearningHiragana(data map[string]string) {
 		}
 		fmt.Fprintln(a.Out, k)
 		fmt.Fprintln(a.Out)
-		a.printLearningHiraganaMenu()
+		a.printLearningKanaMenu()
 		fmt.Fprint(a.Out, "> ")
 
 		input, aborted := a.ReadLine()
@@ -133,7 +157,7 @@ func (a *App) RunLearningHiragana(data map[string]string) {
 		if answer == data[k] {
 			known[k] = true
 			delete(unknown, k)
-			save()
+			persist()
 			fmt.Fprintf(a.Out, "Correct! You answered \"%s\".\n", answer)
 		} else {
 			unknown[k] = true
@@ -153,7 +177,7 @@ func (a *App) RunLearningHiragana(data map[string]string) {
 			continue
 		}
 		if ask(k) {
-			a.showStats(data, known, unknown)
+			a.showStatsScript(scriptName, data, known, unknown)
 			return
 		}
 	}
@@ -164,12 +188,12 @@ func (a *App) RunLearningHiragana(data map[string]string) {
 				continue
 			}
 			if ask(k) {
-				a.showStats(data, known, unknown)
+				a.showStatsScript(scriptName, data, known, unknown)
 				return
 			}
 		}
 	}
-	a.showStats(data, known, unknown)
+	a.showStatsScript(scriptName, data, known, unknown)
 }
 
 // sortedStringMap returns the keys of m sorted.
@@ -182,6 +206,20 @@ func sortedStringMap(m map[string]string) []string {
 	return out
 }
 
+// RunLearningKatakana runs the katakana quiz over the given data set. It is
+// the katakana counterpart of RunLearningHiragana and shares the same quiz
+// engine: random order, repeated wrong answers, persisted progress in
+// KnownKatakana and statistics on Escape.
+func (a *App) RunLearningKatakana(data map[string]string) {
+	a.runKanaQuiz("katakana", data,
+		func() []string { return a.LoadProgress().KnownKatakana },
+		func(list []string) error {
+			p := a.LoadProgress()
+			p.KnownKatakana = list
+			return a.SaveProgress(p)
+		})
+}
+
 // RunResetHiraganaProgress asks for confirmation and then clears only the
 // persisted hiragana learning progress, returning to the main menu afterwards.
 func (a *App) RunResetHiraganaProgress() {
@@ -190,6 +228,17 @@ func (a *App) RunResetHiraganaProgress() {
 			return a.ResetHiragana()
 		}
 		return ResetHiraganaProgress()
+	})
+}
+
+// RunResetKatakanaProgress asks for confirmation and then clears only the
+// persisted katakana learning progress, returning to the main menu afterwards.
+func (a *App) RunResetKatakanaProgress() {
+	a.runReset("katakana", "all kana you have learned so far will be asked again.", func() error {
+		if a.ResetKatakana != nil {
+			return a.ResetKatakana()
+		}
+		return ResetKatakanaProgress()
 	})
 }
 

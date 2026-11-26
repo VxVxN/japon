@@ -21,10 +21,11 @@ type App struct {
 	NavigateTo func(name string) // how menu navigation is performed
 
 	// Progress persistence hooks; tests replace them with in-memory fakes.
-	LoadProgress        func() ProgressData
-	SaveProgress        func(ProgressData) error
-	ResetProgress       func() error
-	ResetHiragana       func() error
+	LoadProgress         func() ProgressData
+	SaveProgress         func(ProgressData) error
+	ResetProgress        func() error
+	ResetHiragana        func() error
+	ResetKatakana        func() error
 	ResetPhrasesProgress func() error
 }
 
@@ -40,6 +41,7 @@ func New() *App {
 		SaveProgress:       SaveProgress,
 		ResetProgress:      ResetProgress,
 		ResetHiragana:      ResetHiraganaProgress,
+		ResetKatakana:      ResetKatakanaProgress,
 		ResetPhrasesProgress: ResetPhrasesProgress,
 	}
 }
@@ -51,19 +53,22 @@ func CleanDisplay() {
 
 // Navigation destination names used by the menus.
 const (
-	DestMainMenu      = "main"
-	DestPhrases       = "phrases"
-	DestHiragana      = "hiragana"
-	DestReset         = "reset"
-	DestResetHiragana = "reset-hiragana"
-	DestResetPhrases  = "reset-phrases"
-	DestQuit          = "quit"
-	DestUnchanged     = ""
+	DestMainMenu       = "main"
+	DestPhrases        = "phrases"
+	DestHiragana       = "hiragana"
+	DestKatakana       = "katakana"
+	DestReset          = "reset"
+	DestResetHiragana  = "reset-hiragana"
+	DestResetKatakana  = "reset-katakana"
+	DestResetPhrases   = "reset-phrases"
+	DestQuit           = "quit"
+	DestUnchanged      = ""
 )
 
 // ClassifyMenuKey maps a main-menu key press to a navigation destination,
 // matching the printed menu: "1: Learning phrases", "2: Learning hiragana",
-// "3: Reset hiragana progress", "4: Reset phrases progress", "0: Exit".
+// "3: Learning katakana", "4: Reset hiragana progress",
+// "5: Reset katakana progress", "6: Reset phrases progress", "0: Exit".
 // Escape also exits; everything else returns DestUnchanged.
 func ClassifyMenuKey(k keys.Key) string {
 	if k.Code == keys.Escape {
@@ -78,8 +83,12 @@ func ClassifyMenuKey(k keys.Key) string {
 	case "2":
 		return DestHiragana
 	case "3":
-		return DestResetHiragana
+		return DestKatakana
 	case "4":
+		return DestResetHiragana
+	case "5":
+		return DestResetKatakana
+	case "6":
 		return DestResetPhrases
 	}
 	if len(s) != 1 || s[0] < '0' || s[0] > '9' {
@@ -89,18 +98,24 @@ func ClassifyMenuKey(k keys.Key) string {
 }
 
 // FormatStats renders the hiragana learning statistics for the given state.
-// knownKeys are answered correctly, unknownKeys were explicitly marked as not
-// known, restKeys were never attempted. Keys within each section are sorted
-// for deterministic output. All three slices must contain distinct keys that
-// exist in data.
+// It defaults to the "hiragana" wording in the section headers.
 func FormatStats(data map[string]string, knownKeys, unknownKeys, restKeys []string) string {
+	return FormatStatsScript("hiragana", data, knownKeys, unknownKeys, restKeys)
+}
+
+// FormatStatsScript renders the kana learning statistics using scriptName
+// ("hiragana" or "katakana") in the section headers. knownKeys are answered
+// correctly, unknownKeys were explicitly marked as not known, restKeys were
+// never attempted. Keys within each section are sorted for deterministic
+// output. All three slices must contain distinct keys that exist in data.
+func FormatStatsScript(scriptName string, data map[string]string, knownKeys, unknownKeys, restKeys []string) string {
 	w := &strings.Builder{}
 	fmt.Fprintf(w, "Statistics (%d/%d answered correctly):\n\n", len(knownKeys), len(data))
 
-	fmt.Fprintln(w, "Known hiragana:")
+	fmt.Fprintf(w, "Known %s:\n", scriptName)
 	writeKeyList(w, data, knownKeys)
 
-	fmt.Fprintln(w, "\nNot known / not answered hiragana:")
+	fmt.Fprintf(w, "\nNot known / not answered %s:\n", scriptName)
 	writeKeyList(w, data, append(append([]string{}, restKeys...), unknownKeys...))
 
 	return w.String()

@@ -33,6 +33,7 @@ func newTestApp(t *testing.T, ks ...keys.Key) (*app.App, *bytes.Buffer, *kbd.Fak
 		SaveProgress:         func(p app.ProgressData) error { progress = p; return nil },
 		ResetProgress:        func() error { progress = app.ProgressData{}; return nil },
 		ResetHiragana:        func() error { progress.KnownHiragana = nil; return nil },
+		ResetKatakana:        func() error { progress.KnownKatakana = nil; return nil },
 		ResetPhrasesProgress: func() error { progress.KnownPhrases = nil; return nil },
 	}
 	return a, buf, listener, &exits, &navs
@@ -109,11 +110,13 @@ func TestMenuKeyMappingMatchesPrintedMenu(t *testing.T) {
 	out := buf.String()
 
 	wants := map[string]string{
-		"1: Learning phrases":        app.DestPhrases,
-		"2: Learning hiragana":       app.DestHiragana,
-		"3: Reset hiragana progress": app.DestResetHiragana,
-		"4: Reset phrases progress":  app.DestResetPhrases,
-		"0: Exit":                    app.DestQuit,
+		"1: Learning phrases":         app.DestPhrases,
+		"2: Learning hiragana":        app.DestHiragana,
+		"3: Learning katakana":        app.DestKatakana,
+		"4: Reset hiragana progress":  app.DestResetHiragana,
+		"5: Reset katakana progress":  app.DestResetKatakana,
+		"6: Reset phrases progress":   app.DestResetPhrases,
+		"0: Exit":                     app.DestQuit,
 	}
 	for line, dest := range wants {
 		if !strings.Contains(out, line) {

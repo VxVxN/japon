@@ -22,8 +22,12 @@ func navigateTo(a *app.App) func(name string) {
 			a.RunLearningPhrases(data.AllPhrases())
 		case app.DestHiragana:
 			a.RunLearningHiragana(data.Hiragana)
+		case app.DestKatakana:
+			a.RunLearningKatakana(data.Katakana)
 		case app.DestResetHiragana:
 			a.RunResetHiraganaProgress()
+		case app.DestResetKatakana:
+			a.RunResetKatakanaProgress()
 		case app.DestResetPhrases:
 			a.RunResetPhrasesProgress()
 		default: // app.DestMainMenu
