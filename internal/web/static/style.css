@@ -270,6 +270,44 @@ body {
 
 .menu-subtitle { margin: 0 0 18px; color: var(--dim); font-size: 14px; }
 
+/* compact "reset progress" row under the main menu cards */
+.reset-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+}
+.reset-caption {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: var(--dim);
+  margin-right: 4px;
+}
+.reset-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font: 500 12.5px/1 inherit;
+  font-family: inherit;
+  color: var(--dim);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color .2s, border-color .2s, background .2s, transform .12s;
+}
+.reset-btn .icon { width: 13px; height: 13px; }
+.reset-btn:hover {
+  color: var(--danger);
+  border-color: rgba(255, 107, 107, .45);
+  background: rgba(255, 107, 107, .08);
+}
+.reset-btn:active { transform: scale(.96); }
+
 /* icon accents per destination */
 .ic-book   { color: var(--info); }
 .ic-pencil { color: var(--gold); }
