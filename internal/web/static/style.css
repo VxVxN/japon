@@ -359,6 +359,7 @@ body {
 .feedback.bad .fb-title { color: var(--danger); }
 .fb-answer { color: var(--dim); font-size: 15px; }
 .fb-answer b { color: var(--gold); font-weight: 600; }
+.feedback-actions { margin-top: 14px; display: flex; justify-content: center; }
 
 .quiz-hint { margin: 16px 2px 0; color: var(--dim); font-size: 13.5px; }
 
