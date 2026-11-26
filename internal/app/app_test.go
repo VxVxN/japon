@@ -40,6 +40,36 @@ func newTestApp(t *testing.T, ks ...keys.Key) (*App, *bytes.Buffer, *kbd.Fake, *
 	return a, buf, listener, &exits, &navs
 }
 
+// newTestAppWithProgress builds an App wired to fakes whose progress hooks
+// read and write the ProgressData behind storedPtr. It is used by tests that
+// assert on persisted state across flows (e.g. that saving one script's
+// progress does not clobber another's).
+func newTestAppWithProgress(t *testing.T, storedPtr *ProgressData, ks ...keys.Key) (*App, *bytes.Buffer, *kbd.Fake, *[]int, *[]string) {
+	t.Helper()
+	buf := &bytes.Buffer{}
+	listener := kbd.NewFake(ks...)
+	var exits []int
+	var navs []string
+	a := &App{
+		Out:      buf,
+		Listener: listener,
+		Clean:    func() {},
+		Exit:     func(code int) { exits = append(exits, code) },
+		NavigateTo: func(name string) {
+			navs = append(navs, name)
+			// stop the flow that navigated away, like the real one-shot menus do
+			listener.Keys = nil
+		},
+		LoadProgress:         func() ProgressData { return *storedPtr },
+		SaveProgress:         func(p ProgressData) error { *storedPtr = p; return nil },
+		ResetProgress:        func() error { *storedPtr = ProgressData{}; return nil },
+		ResetHiragana:        func() error { storedPtr.KnownHiragana = nil; return nil },
+		ResetKatakana:        func() error { storedPtr.KnownKatakana = nil; return nil },
+		ResetPhrasesProgress: func() error { storedPtr.KnownPhrases = nil; return nil },
+	}
+	return a, buf, listener, &exits, &navs
+}
+
 func TestClassifyMenuKey(t *testing.T) {
 	tests := []struct {
 		name string
